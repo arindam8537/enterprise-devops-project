@@ -1,21 +1,25 @@
 package com.example.employeeservice.service;
 
 import com.example.employeeservice.entity.Employee;
+import com.example.employeeservice.repository.EmployeeRepository;
 import org.springframework.stereotype.Service;
+
+import java.util.List;
 
 @Service
 public class EmployeeService {
 
-    public Employee getEmployee() {
+    private final EmployeeRepository employeeRepository;
 
-        Employee employee = new Employee();
+    public EmployeeService(EmployeeRepository employeeRepository) {
+        this.employeeRepository = employeeRepository;
+    }
 
-        employee.setId(101);
-        employee.setFirstName("Arindam");
-        employee.setLastName("Tiwari");
-        employee.setDepartment("DevOps");
-        employee.setSalary(1800000);
+    public List<Employee> getAllEmployees() {
+        return employeeRepository.findAll();
+    }
 
-        return employee;
+    public Employee saveEmployee(Employee employee) {
+        return employeeRepository.save(employee);
     }
 }

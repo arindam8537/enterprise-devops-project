@@ -1,30 +1,41 @@
 package com.example.employeeservice.entity;
 
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+
+@Entity
 public class Employee {
 
-    private int id;
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
     private String firstName;
     private String lastName;
+    private String email;
     private String department;
-    private double salary;
+    private Double salary;
 
     public Employee() {
     }
 
-    public Employee(int id, String firstName, String lastName,
-                    String department, double salary) {
+    public Employee(Long id, String firstName, String lastName,
+                    String email, String department, Double salary) {
         this.id = id;
         this.firstName = firstName;
         this.lastName = lastName;
+        this.email = email;
         this.department = department;
         this.salary = salary;
     }
 
-    public int getId() {
+    public Long getId() {
         return id;
     }
 
-    public void setId(int id) {
+    public void setId(Long id) {
         this.id = id;
     }
 
@@ -44,6 +55,14 @@ public class Employee {
         this.lastName = lastName;
     }
 
+    public String getEmail() {
+        return email;
+    }
+
+    public void setEmail(String email) {
+        this.email = email;
+    }
+
     public String getDepartment() {
         return department;
     }
@@ -52,11 +71,11 @@ public class Employee {
         this.department = department;
     }
 
-    public double getSalary() {
+    public Double getSalary() {
         return salary;
     }
 
-    public void setSalary(double salary) {
+    public void setSalary(Double salary) {
         this.salary = salary;
     }
 }
