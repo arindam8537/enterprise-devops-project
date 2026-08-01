@@ -6,11 +6,10 @@ pipeline {
     }
 
     environment {
-        APP_NAME = 'employee-service'
-       // IMAGE_NAME = 'employee-service'
-        IMAGE_NAME = 'arindamtiwari/employee-service'
-        IMAGE_TAG = '${BUILD_NUMBER}'
-        APP_PORT = '8081'
+        APP_NAME   = "employee-service"
+        IMAGE_NAME = "arindamtiwari/employee-service"
+        IMAGE_TAG  = "${BUILD_NUMBER}"
+        APP_PORT   = "8081"
     }
 
     stages {
@@ -38,45 +37,43 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 dir('application/employee-service') {
-                    sh '''
-                    docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
-                    docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest
-                    '''
+                    sh """
+                        docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
+                        docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest
+                    """
                 }
             }
         }
 
         stage('Docker Push') {
-           steps {
+            steps {
 
-              withCredentials([
-               usernamePassword(
-                credentialsId: 'dockerhub-creds',
-                usernameVariable: 'DOCKER_USER',
-                passwordVariable: 'DOCKER_PASS'
-            )
-                 ]) {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'dockerhub-creds',
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_PASS'
+                    )
+                ]) {
 
-               sh '''
-               echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-               docker push ${IMAGE_NAME}:${IMAGE_TAG}
-               docker push ${IMAGE_NAME}:latest
-               docker logout
-            '''
-
+                    sh """
+                        echo "\$DOCKER_PASS" | docker login -u "\$DOCKER_USER" --password-stdin
+                        docker push ${IMAGE_NAME}:${IMAGE_TAG}
+                        docker push ${IMAGE_NAME}:latest
+                        docker logout
+                    """
                 }
-             }
+            }
         }
 
         stage('List Docker Images') {
-          steps {
-          sh 'docker images'
+            steps {
+                sh 'docker images'
             }
         }
     }
 
     post {
-
         success {
             echo 'Pipeline completed successfully.'
         }
