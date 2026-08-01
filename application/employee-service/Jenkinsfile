@@ -75,7 +75,7 @@ pipeline {
 
         stage('Deploy Container') {
             steps {
-                sh '''
+                sh """
                  docker stop employee-service || true
                   docker rm employee-service || true
                   docker run -d \
@@ -86,7 +86,7 @@ pipeline {
                     -e SPRING_DATASOURCE_USERNAME=root \
                     -e SPRING_DATASOURCE_PASSWORD=root \
                     ${IMAGE_NAME}:${IMAGE_TAG}
-                '''
+                """
                  }
         }
 
