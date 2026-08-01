@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     tools {
-        maven 'Maven-3.9'
+        maven 'Maven-3.9'     // Use your configured Maven tool name
     }
 
     stages {
@@ -15,7 +15,9 @@ pipeline {
 
         stage('Build') {
             steps {
-                sh 'mvn clean package'
+                dir('application/employee-service') {
+                    sh 'mvn clean package'
+                }
             }
         }
     }
