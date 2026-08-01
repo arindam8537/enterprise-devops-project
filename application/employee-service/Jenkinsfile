@@ -21,7 +21,7 @@ pipeline {
         stage('Build') {
             steps {
                 dir('application/employee-service') {
-                    sh './mvnw clean package'
+                    sh 'mvn clean package'
                 }
             }
         }
