@@ -2,7 +2,12 @@ pipeline {
     agent any
 
     tools {
-        maven 'Maven-3.9'     // Use your configured Maven tool name
+        maven 'Maven-3.9'
+    }
+
+    environment {
+        APP_NAME = "employee-service"
+        IMAGE_NAME = "employee-service:v1"
     }
 
     stages {
@@ -16,19 +21,34 @@ pipeline {
         stage('Build') {
             steps {
                 dir('application/employee-service') {
-                    sh 'mvn clean package'
+                    sh './mvnw clean package'
+                }
+            }
+        }
+
+        stage('Archive Artifact') {
+            steps {
+                archiveArtifacts artifacts: 'application/employee-service/target/*.jar', fingerprint: true
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                dir('application/employee-service') {
+                    sh 'docker build -t ${IMAGE_NAME} .'
                 }
             }
         }
     }
 
     post {
+
         success {
-            echo 'Build completed successfully!'
+            echo 'Pipeline completed successfully.'
         }
 
         failure {
-            echo 'Build failed!'
+            echo 'Pipeline failed.'
         }
     }
 }
