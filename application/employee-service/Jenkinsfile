@@ -6,8 +6,9 @@ pipeline {
     }
 
     environment {
-        APP_NAME = "employee-service"
-        IMAGE_NAME = "employee-service:${BUILD_NUMBER}"
+        APP_NAME = 'employee-service'
+        IMAGE_NAME = 'employee-service'
+        APP_PORT = '8081'
     }
 
     stages {
@@ -35,7 +36,11 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 dir('application/employee-service') {
-                    sh 'docker build -t employee-service:${BUILD_NUMBER} .'
+                    sh '''
+                    docker build \
+                    -t ${IMAGE_NAME}:${BUILD_NUMBER} \
+                    -t ${IMAGE_NAME}:latest .
+                    '''
                 }
             }
         }
