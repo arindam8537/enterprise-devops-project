@@ -34,20 +34,20 @@ pipeline {
             }
         }
 
-        stage('Debug') {
+ /*      stage('Debug') {
             steps {
                 echo "BUILD_NUMBER = ${env.BUILD_NUMBER}"
                 echo "IMAGE_NAME   = ${IMAGE_NAME}"
             }
-        }
+        } */
 
         stage('Build Docker Image') {
             steps {
                 dir('application/employee-service') {
-                    sh """
+                    sh '''
                         docker build -t ${IMAGE_NAME}:${env.BUILD_NUMBER} .
                         docker tag ${IMAGE_NAME}:${env.BUILD_NUMBER} ${IMAGE_NAME}:latest
-                    """
+                    '''
                 }
             }
         }
@@ -63,15 +63,33 @@ pipeline {
                     )
                 ]) {
 
-                    sh """
+                    sh '''
                         echo "\$DOCKER_PASS" | docker login -u "\$DOCKER_USER" --password-stdin
                         docker push ${IMAGE_NAME}:${env.BUILD_NUMBER}
                         docker push ${IMAGE_NAME}:latest
                         docker logout
-                    """
+                    '''
                 }
             }
         }
+
+        stage('Deploy Container') {
+            steps {
+                sh '''
+                 docker stop employee-service || true
+                  docker rm employee-service || true
+                  docker run -d \
+                    --name employee-service \
+                    -p 8081:8081 \
+                    --network employee-service_default \
+                    -e SPRING_DATASOURCE_URL=jdbc:mysql://employee-mysql:3306/employee_db \
+                    -e SPRING_DATASOURCE_USERNAME=root \
+                    -e SPRING_DATASOURCE_PASSWORD=root \
+                    ${IMAGE_NAME}:${IMAGE_TAG}
+                '''
+                 }
+        }
+
 
         stage('List Docker Images') {
             steps {
