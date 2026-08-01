@@ -8,7 +8,7 @@ pipeline {
     environment {
         APP_NAME   = "employee-service"
         IMAGE_NAME = "arindamtiwari/employee-service"
-        IMAGE_TAG  = "${BUILD_NUMBER}"
+       // IMAGE_TAG  = "${BUILD_NUMBER}"
         APP_PORT   = "8081"
     }
 
@@ -34,12 +34,19 @@ pipeline {
             }
         }
 
+        stage('Debug') {
+            steps {
+                echo "BUILD_NUMBER = ${env.BUILD_NUMBER}"
+                echo "IMAGE_NAME   = ${IMAGE_NAME}"
+            }
+        }
+
         stage('Build Docker Image') {
             steps {
                 dir('application/employee-service') {
                     sh """
-                        docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
-                        docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest
+                        docker build -t ${IMAGE_NAME}:${env.BUILD_NUMBER} .
+                        docker tag ${IMAGE_NAME}:${env.BUILD_NUMBER} ${IMAGE_NAME}:latest
                     """
                 }
             }
@@ -58,7 +65,7 @@ pipeline {
 
                     sh """
                         echo "\$DOCKER_PASS" | docker login -u "\$DOCKER_USER" --password-stdin
-                        docker push ${IMAGE_NAME}:${IMAGE_TAG}
+                        docker push ${IMAGE_NAME}:${env.BUILD_NUMBER}
                         docker push ${IMAGE_NAME}:latest
                         docker logout
                     """
