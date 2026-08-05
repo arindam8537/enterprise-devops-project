@@ -129,12 +129,12 @@ pipeline {
                         echo "Attempt $COUNT of $MAX_RETRIES"
 
                         if docker exec employee-service \
-                            wget -q --spider http://localhost:8081/employees
+                            wget -q --spider http://localhost:8081/actuator/health
                         then
                             echo ""
-                            echo "Application is UP"
+                            echo "Application is Healthy"
                             docker exec employee-service \
-                                wget -qO- http://localhost:8081/employees
+                                wget -qO- http://localhost:8081/actuator/health
                             exit 0
                         fi
 
