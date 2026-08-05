@@ -8,7 +8,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class ApplicationStartupLogger {
 
-    @Value("${server.port}")
+    @Value("${server.port:8081}")
     private String port;
 
     @EventListener(ApplicationReadyEvent.class)
