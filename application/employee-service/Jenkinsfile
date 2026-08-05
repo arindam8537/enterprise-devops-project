@@ -120,7 +120,10 @@ pipeline {
 
                     echo "Running Health Check..."
 
-                    curl -f http://employee-service:8081/employees
+                   # curl -f http://employee-service:8081/employees
+                    curl -f  http://localhost:8081/employees
+
+
                 '''
             }
         }
@@ -130,7 +133,7 @@ pipeline {
                 sh '''
                     echo "Running Smoke Test..."
 
-                    curl -X POST http://employee-service:8081/employees \
+                    curl -X POST http://localhost:8081/employees \
                     -H "Content-Type: application/json" \
                     -d '{
                         "firstName":"Arindam",
