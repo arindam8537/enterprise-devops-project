@@ -198,6 +198,34 @@ pipeline {
             }
         }
 
+        stage('Deployment Summary') {
+            steps {
+                script {
+                    sh """
+                        echo ""
+                        echo "==============================================================="
+                        echo "                 DEPLOYMENT SUMMARY"
+                        echo "==============================================================="
+                        echo " Application Name : ${APP_NAME}"
+                        echo " Docker Image     : ${IMAGE_NAME}:${env.BUILD_NUMBER}"
+                        echo " Container Name   : employee-service"
+                        echo ""
+                        echo " Application URL  : http://localhost:${APP_PORT}/employees"
+                        echo " Health URL       : http://localhost:${APP_PORT}/actuator/health"
+                        echo " Info URL         : http://localhost:${APP_PORT}/actuator/info"
+                        echo ""
+                        echo " Build Number     : ${env.BUILD_NUMBER}"
+                        echo " Jenkins Job      : ${JOB_NAME}"
+                        echo " Build URL        : ${BUILD_URL}"
+                        echo ""
+                        echo " Status           : DEPLOYMENT SUCCESSFUL"
+                        echo "==============================================================="
+                    """
+                }
+            }
+        }
+
+
         stage('Docker Cleanup') {
             steps {
                 sh """
