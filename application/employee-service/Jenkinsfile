@@ -92,7 +92,7 @@ pipeline {
             }
         }  */
 
-        stage('Deploy') {
+        stage('Deploy Container') {
 
             steps {
 
@@ -109,6 +109,19 @@ pipeline {
                         '''
                     }
                 }
+            }
+        }
+
+        stage('Health Check') {
+            steps {
+                sh ''''
+                    echo "Waiting for application to start..."
+                    sleep 20
+
+                    echo "Running Health Check..."
+
+                    curl -f http://employee-service:8081/employees
+                '''
             }
         }
 
