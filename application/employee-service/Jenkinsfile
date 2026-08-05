@@ -115,20 +115,120 @@ pipeline {
         stage('Health Check') {
             steps {
                 sh '''
+                    echo "========================================"
+                    echo "Starting Health Check..."
+                    echo "========================================"
+
+                    MAX_RETRIES=12
+                    RETRY_INTERVAL=5
+                    COUNT=1
+
+                    while [ $COUNT -le $MAX_RETRIES ]
+                    do
+                        echo ""
+                        echo "Attempt $COUNT of $MAX_RETRIES"
+
+                        if docker exec employee-service \
+                            wget -q --spider http://localhost:8081/employees
+                        then
+                            echo ""
+                            echo "Application is UP"
+                            docker exec employee-service \
+                                wget -qO- http://localhost:8081/employees
+                            exit 0
+                        fi
+
+                        echo "Application not ready..."
+                        sleep $RETRY_INTERVAL
+
+                        COUNT=$((COUNT+1))
+                    done
+
+                    echo ""
+                    echo "Health Check Failed"
+
+                    echo ""
+                    echo "========= Container Logs ========="
+                    docker logs employee-service
+
+                    exit 1
+                '''
+            }
+        }
+
+        stage('Smoke Test') {
+            steps {
+                sh """
+                    EMAIL="arindam${env.BUILD_NUMBER}@gmail.com"
+
+                    echo "Creating Employee..."
+
+                    docker run --rm \
+                        --network deployment_employee-network \
+                        curlimages/curl:latest \
+                        -s \
+                        -X POST \
+                        http://employee-service:8081/employees \
+                        -H "Content-Type: application/json" \
+                        -d '{
+                            "firstName":"Arindam",
+                            "lastName":"Tiwari",
+                            "email":"'"\$EMAIL"'",
+                            "department":"DevOps",
+                            "salary":90000
+                        }'
+
+                    echo ""
+                    echo "Verifying Employee..."
+
+                    docker run --rm \
+                        --network deployment_employee-network \
+                        curlimages/curl:latest \
+                        -s \
+                        http://employee-service:8081/employees \
+                        > employees.json
+
+                    cat employees.json
+
+                    grep "\$EMAIL" employees.json
+
+                    echo ""
+                    echo "Smoke Test Passed"
+                """
+            }
+        }
+
+        stage('Docker Cleanup') {
+            steps {
+                sh """
+                    echo "Cleaning Docker..."
+
+                    docker image prune -f
+                    docker builder prune -f
+
+                    echo "Docker Cleanup Completed."
+                """
+            }
+        }
+
+
+   /*     stage('Health Check') {
+            steps {
+                sh '''
                     echo "Waiting for application to start..."
                     sleep 20
 
                     echo "Running Health Check..."
 
                    # curl -f http://employee-service:8081/employees
-                    curl -f  http://localhost:8081/employees
+                   # curl -f  http://localhost:8081/employees
 
 
                 '''
             }
         }
 
-      /*  stage('Smoke Test') {
+        stage('Smoke Test') {
             steps {
                 sh '''
                     echo "Running Smoke Test..."
