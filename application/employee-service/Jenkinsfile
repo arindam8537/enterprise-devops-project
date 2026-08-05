@@ -114,7 +114,7 @@ pipeline {
 
         stage('Health Check') {
             steps {
-                sh ''''
+                sh '''
                     echo "Waiting for application to start..."
                     sleep 20
 
@@ -124,6 +124,32 @@ pipeline {
                 '''
             }
         }
+
+      /*  stage('Smoke Test') {
+            steps {
+                sh '''
+                    echo "Running Smoke Test..."
+
+                    curl -X POST http://employee-service:8081/employees \
+                    -H "Content-Type: application/json" \
+                    -d '{
+                        "firstName":"Arindam",
+                        "lastName":"Tiwari",
+                        "email":"arindam@example.com",
+                        "department":"IT",
+                        "salary":90000
+                    }'
+
+                    echo ""
+                    echo "Verifying inserted employee..."
+
+                    curl -f http://employee-service:8081/employees
+
+                    echo ""
+                    echo "Smoke Test Passed"
+                '''
+            }
+        }  */
 
         stage('Verify Deployment') {
             steps {
