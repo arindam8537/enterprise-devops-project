@@ -25,4 +25,10 @@ public class EmployeeController {
     public Employee saveEmployee(@RequestBody Employee employee) {
         return employeeService.saveEmployee(employee);
     }
+    @GetMapping("/error-test")
+    public String error() {
+
+        throw new RuntimeException("Demo Exception from Employee Service");
+
+}
 }
