@@ -104,8 +104,8 @@ pipeline {
                 }
             }
         }
-        // DevSecOps (Trivy Image Scan) 
-        stage('Trivy Image Scan') {
+        // DevSecOps (Trivy Image Scan) // commented out for now, as we want reports in text, json and html formats for better analysis and reporting
+   /*     stage('Trivy Image Scan') {
 
             steps {
 
@@ -126,6 +126,65 @@ pipeline {
                     echo ""
                     echo "Trivy Scan Passed Successfully"
                 '''
+            }
+        }  */
+
+        stage('Dependency Tree') {
+
+            steps {
+
+                dir('application/employee-service') {
+
+                    sh '''
+
+                    mvn dependency:tree \
+                    > ../../reports/dependency-tree.txt
+
+                    '''
+
+                }
+            }
+        }
+
+        stage('Trivy Security Scan') {
+
+            steps {
+
+                sh '''
+
+                mkdir -p reports
+
+                echo "Scanning Docker Image..."
+
+                trivy image \
+                    --severity HIGH,CRITICAL \
+                    --format table \
+                    -o reports/trivy-report.txt \
+                    ${IMAGE_NAME}:${BUILD_NUMBER}
+
+                trivy image \
+                    --severity HIGH,CRITICAL \
+                    --format json \
+                    -o reports/trivy-report.json \
+                    ${IMAGE_NAME}:${BUILD_NUMBER}
+
+                trivy image \
+                    --severity HIGH,CRITICAL \
+                    --format template \
+                    --template "@reports/templates/html.tpl" \
+                    -o reports/trivy-report.html \
+                    ${IMAGE_NAME}:${BUILD_NUMBER}
+
+                '''
+            }
+        }
+
+        stage('Archive Security Reports') {
+
+            steps {
+
+                archiveArtifacts artifacts: 'reports/**', fingerprint: true
+
             }
         }
 
