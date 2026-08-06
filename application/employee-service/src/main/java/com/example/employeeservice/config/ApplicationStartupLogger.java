@@ -19,6 +19,9 @@ public class ApplicationStartupLogger {
         System.out.println(" Employee Service Started Successfully");
         System.out.println("======================================================");
         System.out.println(" Application URL : http://localhost:" + port + "/employees");
+        System.out.println(" System Info     : http://localhost:" + port + "/system/info");
+        System.out.println();
+        System.out.println("--------------- Spring Boot Actuator ----------------");
         System.out.println(" Health Check    : http://localhost:" + port + "/actuator/health");
         System.out.println(" Info Endpoint   : http://localhost:" + port + "/actuator/info");
         System.out.println("======================================================");
