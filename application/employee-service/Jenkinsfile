@@ -104,6 +104,29 @@ pipeline {
                 }
             }
         }
+        // DevSecOps (Trivy Image Scan) 
+        stage('Trivy Image Scan') {
+
+            steps {
+
+                sh '''
+                    echo "==============================================="
+                    echo "Scanning Docker Image using Trivy"
+                    echo "==============================================="
+
+                    docker run --rm \
+                    -v /var/run/docker.sock:/var/run/docker.sock \
+                    aquasec/trivy:0.73.0 image \
+                    --severity HIGH,CRITICAL \
+                    --exit-code 1 \
+                    --no-progress \
+                    ${IMAGE_NAME}:${BUILD_NUMBER}
+
+                    echo ""
+                    echo "Trivy Scan Passed Successfully"
+                '''
+            }
+        }
 
         stage('Docker Push') {
             steps {
@@ -341,7 +364,7 @@ pipeline {
                 sh """
                     echo "Cleaning Docker..."
 
-                    docker image prune -af --filter "until=48h"
+                    docker image prune -af --filter "until=24h"
                     # docker image prune -f
                     # docker builder prune -f
 
