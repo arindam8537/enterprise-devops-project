@@ -137,26 +137,44 @@ pipeline {
 
                 mkdir -p reports
 
-                echo "Scanning Docker Image..."
+                echo "==============================================="
+                echo "Running Trivy Security Scan"
+                echo "==============================================="
 
-                trivy image \
-                    --severity HIGH,CRITICAL \
-                    --format table \
-                    -o reports/trivy-report.txt \
-                    ${IMAGE_NAME}:${BUILD_NUMBER}
+                docker run --rm \
+                -v /var/run/docker.sock:/var/run/docker.sock \
+                -v $(pwd)/reports:/reports \
+                aquasec/trivy:0.73.0 image \
+                --timeout 15m \
+                --severity HIGH,CRITICAL \
+                --format table \
+                -o /reports/trivy-report.txt \
+                ${IMAGE_NAME}:${BUILD_NUMBER}
 
-                trivy image \
-                    --severity HIGH,CRITICAL \
-                    --format json \
-                    -o reports/trivy-report.json \
-                    ${IMAGE_NAME}:${BUILD_NUMBER}
+                docker run --rm \
+                -v /var/run/docker.sock:/var/run/docker.sock \
+                -v $(pwd)/reports:/reports \
+                aquasec/trivy:0.73.0 image \
+                --timeout 15m \
+                --severity HIGH,CRITICAL \
+                --format json \
+                -o /reports/trivy-report.json \
+                ${IMAGE_NAME}:${BUILD_NUMBER}
 
-                trivy image \
-                    --severity HIGH,CRITICAL \
-                    --format template \
-                    --template "@reports/templates/html.tpl" \
-                    -o reports/trivy-report.html \
-                    ${IMAGE_NAME}:${BUILD_NUMBER}
+                docker run --rm \
+                -v /var/run/docker.sock:/var/run/docker.sock \
+                -v $(pwd)/reports:/reports \
+                aquasec/trivy:0.73.0 image \
+                --timeout 15m \
+                --severity HIGH,CRITICAL \
+                --format template \
+                --template "@contrib/html.tpl" \
+                -o /reports/trivy-report.html \
+                ${IMAGE_NAME}:${BUILD_NUMBER}
+
+                echo "==============================================="
+                echo "Trivy Reports Generated Successfully"
+                echo "==============================================="
 
                 '''
             }
