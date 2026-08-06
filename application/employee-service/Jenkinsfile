@@ -129,23 +129,6 @@ pipeline {
             }
         }  */
 
-        stage('Dependency Tree') {
-
-            steps {
-
-                dir('application/employee-service') {
-
-                    sh '''
-
-                    mvn dependency:tree \
-                    > ../../reports/dependency-tree.txt
-
-                    '''
-
-                }
-            }
-        }
-
         stage('Trivy Security Scan') {
 
             steps {
@@ -176,6 +159,23 @@ pipeline {
                     ${IMAGE_NAME}:${BUILD_NUMBER}
 
                 '''
+            }
+        }
+
+        stage('Dependency Tree') {
+
+            steps {
+
+                dir('application/employee-service') {
+
+                    sh '''
+
+                    mvn dependency:tree \
+                    > ../../reports/dependency-tree.txt
+
+                    '''
+
+                }
             }
         }
 
