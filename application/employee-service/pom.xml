@@ -68,10 +68,10 @@
 		    <artifactId>spring-boot-starter-actuator</artifactId>
 		</dependency>
 
-		<properties>
+		<dependency>
 		    <sonar.projectKey>employee-service</sonar.projectKey>
 		    <sonar.projectName>Employee Service</sonar.projectName>
-		</properties>
+		</dependency>
 
 	</dependencies>
 
