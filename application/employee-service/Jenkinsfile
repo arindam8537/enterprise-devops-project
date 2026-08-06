@@ -6,12 +6,36 @@ pipeline {
     }
 
     environment {
+        // Application
+        APP_NAME        = "employee-service"
+        APP_PORT        = "8081"
+
+        // Docker
+        DOCKER_USERNAME = "arindamtiwari"
+        IMAGE_NAME      = "${DOCKER_USERNAME}/${APP_NAME}"
+        CONTAINER_NAME  = "employee-service"
+
+        // Docker Compose
+        COMPOSE_DIR     = "deployment"
+        NETWORK_NAME    = "deployment_employee-network"
+
+        // SonarQube
+        SONARQUBE_SERVER = "SonarQube"
+        SONAR_PROJECT_KEY = "employee-service"
+
+        // Health Check
+        HEALTH_ENDPOINT = "/actuator/health"
+    }
+
+
+
+ /*   environment {
         APP_NAME   = "employee-service"
         IMAGE_NAME = "arindamtiwari/employee-service"
        // IMAGE_TAG  = "${BUILD_NUMBER}"
         APP_PORT   = "8081"
         SONARQUBE_SERVER = "SonarQube"
-    }
+    } */
 
     stages {
 
@@ -34,10 +58,21 @@ pipeline {
 
                 withSonarQubeEnv("${SONARQUBE_SERVER}") {
 
+                    withCredentials([
+                    string(
+                        credentialsId: 'sonar-token',
+                       variable: 'SONAR_TOKEN'
+                )
+            ]) 
+
                     dir('application/employee-service') {
 
                         sh '''
-                            mvn clean verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar
+                            mvn \
+                            org.sonarsource.scanner.maven:sonar-maven-plugin:5.7.0.6970:sonar \
+                            -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+                            -Dsonar.token=$SONAR_TOKEN
+                          #  mvn clean verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar
                         '''
 
                     }
@@ -127,7 +162,7 @@ pipeline {
 
             steps {
 
-                dir('deployment') {
+                dir("${COMPOSE_DIR}") {
 
                     withEnv([
                         "IMAGE_NAME=${IMAGE_NAME}:latest"
@@ -159,13 +194,13 @@ pipeline {
                         echo ""
                         echo "Attempt $COUNT of $MAX_RETRIES"
 
-                        if docker exec employee-service \
-                            wget -q --spider http://localhost:8081/actuator/health
+                        if docker exec ${CONTAINER_NAME} \
+                            wget -q --spider http://localhost:${APP_PORT}${HEALTH_ENDPOINT}
                         then
                             echo ""
                             echo "Application is Healthy"
-                            docker exec employee-service \
-                                wget -qO- http://localhost:8081/actuator/health
+                            docker exec ${CONTAINER_NAME} \
+                                wget -qO- http://localhost:${APP_PORT}${HEALTH_ENDPOINT}
                             exit 0
                         fi
 
@@ -180,7 +215,7 @@ pipeline {
 
                     echo ""
                     echo "========= Container Logs ========="
-                    docker logs employee-service
+                    docker logs ${CONTAINER_NAME}
 
                     exit 1
                 '''
@@ -195,11 +230,11 @@ pipeline {
                     echo "Creating Employee..."
 
                     docker run --rm \
-                        --network deployment_employee-network \
+                        --network ${NETWORK_NAME} \
                         curlimages/curl:latest \
                         -s \
                         -X POST \
-                        http://employee-service:8081/employees \
+                        http://${CONTAINER_NAME}:${APP_PORT}/employees \
                         -H "Content-Type: application/json" \
                         -d '{
                             "firstName":"Arindam",
@@ -213,10 +248,10 @@ pipeline {
                     echo "Verifying Employee..."
 
                     docker run --rm \
-                        --network deployment_employee-network \
+                        --network ${NETWORK_NAME} \
                         curlimages/curl:latest \
                         -s \
-                        http://employee-service:8081/employees \
+                        http://${CONTAINER_NAME}:${APP_PORT}/employees \
                         > employees.json
 
                     cat employees.json
@@ -239,10 +274,10 @@ pipeline {
                         echo "==============================================================="
                         echo " Application Name : ${APP_NAME}"
                         echo " Docker Image     : ${IMAGE_NAME}:${env.BUILD_NUMBER}"
-                        echo " Container Name   : employee-service"
+                        echo " Container Name   : ${CONTAINER_NAME}"
                         echo ""
                         echo " Application URL  : http://localhost:${APP_PORT}/employees"
-                        echo " Health URL       : http://localhost:${APP_PORT}/actuator/health"
+                        echo " Health URL       : http://localhost:${APP_PORT}${HEALTH_ENDPOINT}"
                         echo " Info URL         : http://localhost:${APP_PORT}/actuator/info"
                         echo ""
                         echo " Build Number     : ${env.BUILD_NUMBER}"
@@ -305,7 +340,7 @@ pipeline {
 
                     docker ps
 
-                    docker logs employee-service --tail 50
+                    docker logs ${CONTAINER_NAME} --tail 50
                 '''
             }
         }
