@@ -28,6 +28,10 @@
 	</scm>
 	<properties>
 		<java.version>17</java.version>
+
+		<sonar.projectKey>employee-service</sonar.projectKey>
+    	<sonar.projectName>Employee Service</sonar.projectName>
+    	<sonar.projectVersion>1.0</sonar.projectVersion>
 	</properties>
 	<dependencies>
 		<dependency>
@@ -63,6 +67,11 @@
 		    <groupId>org.springframework.boot</groupId>
 		    <artifactId>spring-boot-starter-actuator</artifactId>
 		</dependency>
+
+		<properties>
+		    <sonar.projectKey>employee-service</sonar.projectKey>
+		    <sonar.projectName>Employee Service</sonar.projectName>
+		</properties>
 
 	</dependencies>
 
