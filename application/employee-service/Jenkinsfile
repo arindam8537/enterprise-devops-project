@@ -26,6 +26,9 @@ pipeline {
 
         // Health Check
         HEALTH_ENDPOINT = "/actuator/health"
+
+        // NVD API Key for OWASP Dependency Check
+        NVD_API_KEY = credentials('nvd-api-key')
     }
 
 
@@ -220,26 +223,28 @@ pipeline {
             steps {
 
                 sh '''
+
+                mkdir -p reports
+
                 echo "==============================================="
                 echo "Running OWASP Dependency Check"
                 echo "==============================================="
 
-                mkdir -p reports
-
                 docker run --rm \
                 -v $(pwd):/src \
-                -v $(pwd)/reports:/report \
+                -v /var/jenkins_home/dependency-check-data:/usr/share/dependency-check/data \
                 owasp/dependency-check:12.1.8 \
-                --scan /src/application/employee-service \
                 --project employee-service \
-                --out /report \
+                --scan /src/application/employee-service \
                 --format HTML \
-                --format JSON \
-                --format XML
+                --format XML \
+                --out /src/reports \
+                --nvdApiKey "$NVD_API_KEY"
 
                 echo "==============================================="
-                echo "OWASP Dependency Check Completed"
+                echo "OWASP Scan Completed"
                 echo "==============================================="
+
                 '''
 
             }
