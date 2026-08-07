@@ -129,6 +129,7 @@ pipeline {
             }
         }  */
             // --scanners vuln \   to disable secret scanning as scanning is slow 
+            // -v trivy-cache:/root/.cache/trivy  --- to cache trivy scan results for faster subsequent scans 
         stage('Trivy Security Scan') {
 
             steps {
@@ -144,6 +145,7 @@ pipeline {
                 docker run --rm \
                 -v /var/run/docker.sock:/var/run/docker.sock \
                 -v $(pwd)/reports:/reports \
+                -v trivy-cache:/root/.cache/trivy \
                 aquasec/trivy:0.73.0 image \
                 --scanners vuln \
                 --timeout 15m \
@@ -155,6 +157,7 @@ pipeline {
                 docker run --rm \
                 -v /var/run/docker.sock:/var/run/docker.sock \
                 -v $(pwd)/reports:/reports \
+                -v trivy-cache:/root/.cache/trivy \
                 aquasec/trivy:0.73.0 image \
                 --scanners vuln \
                 --timeout 15m \
@@ -166,6 +169,7 @@ pipeline {
                 docker run --rm \
                 -v /var/run/docker.sock:/var/run/docker.sock \
                 -v $(pwd)/reports:/reports \
+                -v trivy-cache:/root/.cache/trivy \
                 aquasec/trivy:0.73.0 image \
                 --scanners vuln \
                 --timeout 15m \
@@ -200,7 +204,7 @@ pipeline {
             }
         }
 
-        stage('Debug Dependency Check Tool') {
+  /*      stage('Debug Dependency Check Tool') {
             steps {
                 script {
                     echo "WORKSPACE = ${env.WORKSPACE}"
@@ -208,36 +212,39 @@ pipeline {
                     sh 'ls -la'
                 }
             }
-        }
+        }  */
+
 
         stage('OWASP Dependency Check') {
-            steps {
-                dependencyCheck( 
-                    odcInstallation: 'DependencyCheck',
-                    additionalArguments: '''
-                    --scan application/employee-service \
-                    --format HTML \
-                    --format XML \
-                    --out reports 
-                ''',
-                debug: true
-                )
-            }
-        }
-
-        stage('Publish OWASP Report') {
 
             steps {
 
-                dependencyCheckPublisher(
-                    pattern: 'reports/dependency-check-report.xml',
-                    failedTotalCritical: 1,
-                    stopBuild: true
-                )
+                sh '''
+                echo "==============================================="
+                echo "Running OWASP Dependency Check"
+                echo "==============================================="
+
+                mkdir -p reports
+
+                docker run --rm \
+                -v $(pwd):/src \
+                -v $(pwd)/reports:/report \
+                owasp/dependency-check:12.1.8 \
+                --scan /src/application/employee-service \
+                --project employee-service \
+                --out /report \
+                --format HTML \
+                --format JSON \
+                --format XML
+
+                echo "==============================================="
+                echo "OWASP Dependency Check Completed"
+                echo "==============================================="
+                '''
 
             }
-        }
 
+        }
 
         stage('Archive Security Reports') {
 
