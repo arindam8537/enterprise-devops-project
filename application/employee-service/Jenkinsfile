@@ -180,6 +180,29 @@ pipeline {
             }
         }
 
+        stage('OWASP Dependency Check') {
+            steps {
+                dependencyCheck additionalArguments: '''
+                    --scan application/employee-service
+                    --format HTML
+                    --format XML
+                    --out reports
+                ''',
+                odcInstallation: 'DependencyCheck'
+            }
+        }
+
+        stage('Publish OWASP Report') {
+
+            steps {
+
+                dependencyCheckPublisher(
+                    pattern: 'reports/dependency-check-report.xml'
+                )
+
+            }
+        }
+
         stage('Dependency Tree') {
 
             steps {
