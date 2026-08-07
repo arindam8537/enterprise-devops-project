@@ -183,6 +183,33 @@ pipeline {
             }
         }
 
+        stage('Dependency Tree') {
+
+            steps {
+
+                dir('application/employee-service') {
+
+                    sh '''
+
+                    mvn dependency:tree \
+                    > ../../reports/dependency-tree.txt
+
+                    '''
+
+                }
+            }
+        }
+
+        stage('Debug Dependency Check Tool') {
+            steps {
+                script {
+                    echo "WORKSPACE = ${env.WORKSPACE}"
+                    sh 'pwd'
+                    sh 'ls -la'
+                }
+            }
+        }
+
         stage('OWASP Dependency Check') {
             steps {
                 dependencyCheck( 
@@ -211,22 +238,6 @@ pipeline {
             }
         }
 
-        stage('Dependency Tree') {
-
-            steps {
-
-                dir('application/employee-service') {
-
-                    sh '''
-
-                    mvn dependency:tree \
-                    > ../../reports/dependency-tree.txt
-
-                    '''
-
-                }
-            }
-        }
 
         stage('Archive Security Reports') {
 
