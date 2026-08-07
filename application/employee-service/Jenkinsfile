@@ -128,7 +128,7 @@ pipeline {
                 '''
             }
         }  */
-
+            // --scanners vuln \   to disable secret scanning as scanning is slow 
         stage('Trivy Security Scan') {
 
             steps {
@@ -145,6 +145,7 @@ pipeline {
                 -v /var/run/docker.sock:/var/run/docker.sock \
                 -v $(pwd)/reports:/reports \
                 aquasec/trivy:0.73.0 image \
+                --scanners vuln \
                 --timeout 15m \
                 --severity HIGH,CRITICAL \
                 --format table \
@@ -155,6 +156,7 @@ pipeline {
                 -v /var/run/docker.sock:/var/run/docker.sock \
                 -v $(pwd)/reports:/reports \
                 aquasec/trivy:0.73.0 image \
+                --scanners vuln \
                 --timeout 15m \
                 --severity HIGH,CRITICAL \
                 --format json \
@@ -165,6 +167,7 @@ pipeline {
                 -v /var/run/docker.sock:/var/run/docker.sock \
                 -v $(pwd)/reports:/reports \
                 aquasec/trivy:0.73.0 image \
+                --scanners vuln \ 
                 --timeout 15m \
                 --severity HIGH,CRITICAL \
                 --format template \
@@ -182,13 +185,16 @@ pipeline {
 
         stage('OWASP Dependency Check') {
             steps {
-                dependencyCheck additionalArguments: '''
-                    --scan application/employee-service
-                    --format HTML
-                    --format XML
-                    --out reports
+                dependencyCheck( 
+                    odcInstallation: 'DependencyCheck',
+                    additionalArguments: '''
+                    --scan application/employee-service \
+                    --format HTML \
+                    --format XML \
+                    --out reports 
                 ''',
-                odcInstallation: 'DependencyCheck'
+                debug: true
+                )
             }
         }
 
@@ -197,7 +203,9 @@ pipeline {
             steps {
 
                 dependencyCheckPublisher(
-                    pattern: 'reports/dependency-check-report.xml'
+                    pattern: 'reports/dependency-check-report.xml',
+                    failedTotalCritical: 1,
+                    stopBuild: true
                 )
 
             }
