@@ -27,7 +27,7 @@ services:
 
   employee-service:
 
-    image: ${IMAGE_NAME}
+    image: ${IMAGE_NAME}:${env.BUILD_NUMBER}  
 
     container_name: employee-service
 

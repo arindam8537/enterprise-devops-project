@@ -2,7 +2,8 @@
 
 <configuration>
 
-    <property name="LOG_PATH" value="logs"/>
+   <!-- <property name="LOG_PATH" value="logs"/> -->  
+    <property name="LOG_PATH" value="/app/logs"/>
 
     <!-- Console -->
 

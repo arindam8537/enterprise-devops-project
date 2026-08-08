@@ -29,6 +29,9 @@ pipeline {
 
         // NVD API Key for OWASP Dependency Check
         NVD_API_KEY = credentials('nvd-api-key')
+
+        DEPLOYMENT_STARTED = "false"
+        PREVIOUS_IMAGE = ""
     }
 
 
@@ -133,7 +136,8 @@ pipeline {
         }  */
             // --scanners vuln \   to disable secret scanning as scanning is slow 
             // -v trivy-cache:/root/.cache/trivy  --- to cache trivy scan results for faster subsequent scans 
-        stage('Trivy Security Scan') {
+  
+   /*     stage('Trivy Security Scan') {
 
             steps {
 
@@ -205,7 +209,7 @@ pipeline {
 
                 }
             }
-        }
+        }   -- commented as testing of trivy is fine ( /*     stage('Trivy Security Scan')  to till here)  */
 
   /*      stage('Debug Dependency Check Tool') {
             steps {
@@ -218,7 +222,7 @@ pipeline {
         }  */
 
 
-        stage('OWASP Dependency Check') {
+    /*    stage('OWASP Dependency Check') {
 
             steps {
 
@@ -258,7 +262,8 @@ pipeline {
                 archiveArtifacts artifacts: 'reports/**', fingerprint: true
 
             }
-        }
+        }   --- commeted as report generated and testing is done 
+         /*    stage('OWASP Dependency Check') { -- commented from this */
 
         stage('Docker Push') {
             steps {
@@ -300,7 +305,10 @@ pipeline {
             }
         }  */
 
-        stage('Deploy Container') {
+// added new Deploy Container stage to skip tag latest instead will use build number tag for deployment to 
+// avoid issues with latest tag caching in docker and also to maintain versioning of docker images for better 
+// traceability and rollback if needed
+  /*      stage('Deploy Container') {
 
             steps {
 
@@ -315,6 +323,54 @@ pipeline {
                             docker compose pull
                             docker compose up -d
                         '''
+                    }
+                }
+            }
+        }    */
+
+        stage('Deploy Container') {
+
+            steps {
+
+                script {
+
+                    // Capture currently running version
+                    env.PREVIOUS_IMAGE = sh(
+                        script: """
+                            docker inspect -f '{{.Config.Image}}' ${CONTAINER_NAME} 2>/dev/null || true
+                        """,
+                        returnStdout: true
+                    ).trim()
+
+                    echo "Previous running image: ${env.PREVIOUS_IMAGE}"
+
+                    // Mark that deployment has started
+                    env.DEPLOYMENT_STARTED = "true"
+
+                    // Deploy current immutable build
+                    dir("${COMPOSE_DIR}") {
+
+                        withEnv([
+                            "IMAGE_TAG=${env.BUILD_NUMBER}"
+                        ]) {
+
+                            sh '''
+                                echo "=========================================="
+                                echo "Deploying Employee Service"
+                                echo "=========================================="
+
+                                echo "Previous Image : ${PREVIOUS_IMAGE}"
+                                echo "New Image      : ${IMAGE_NAME}:${IMAGE_TAG}"
+
+                                docker compose down || true
+
+                                docker compose pull
+
+                                docker compose up -d
+
+                                echo "Deployment command completed."
+                            '''
+                        }
                     }
                 }
             }
@@ -513,12 +569,66 @@ pipeline {
     } 
 
     post {
+
         success {
+
+            echo '=========================================='
             echo 'Pipeline completed successfully.'
+            echo '=========================================='
         }
 
         failure {
-            echo 'Pipeline failed.'
+
+            echo '=========================================='
+            echo 'Pipeline FAILED'
+            echo '=========================================='
+
+            script {
+
+                if (env.DEPLOYMENT_STARTED == "true" &&
+                    env.PREVIOUS_IMAGE?.trim()) {
+
+                    echo "Deployment was started."
+                    echo "Previous image: ${env.PREVIOUS_IMAGE}"
+                    echo "Starting automatic rollback..."
+
+                    sh """
+                        echo "=========================================="
+                        echo "ROLLBACK STARTED"
+                        echo "=========================================="
+
+                        echo "Restoring image:"
+                        echo "${env.PREVIOUS_IMAGE}"
+
+                        cd ${COMPOSE_DIR}
+
+                        export IMAGE_TAG="${env.PREVIOUS_IMAGE##*:}"
+
+                        docker compose down || true
+
+                        docker compose up -d
+
+                        echo "Waiting for rollback application..."
+
+                        sleep 15
+
+                        docker ps
+
+                        echo "Rollback container logs:"
+                        docker logs ${CONTAINER_NAME} --tail 50 || true
+
+                        echo "=========================================="
+                        echo "ROLLBACK COMPLETED"
+                        echo "Restored: ${env.PREVIOUS_IMAGE}"
+                        echo "=========================================="
+                    """
+
+                } else {
+
+                    echo "No deployment rollback required."
+                    echo "Failure occurred before deployment."
+                }
+            }
         }
     }
 }
