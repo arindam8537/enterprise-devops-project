@@ -53,6 +53,75 @@ pipeline {
             }
         }
 
+        stage('Prepare Build Metadata') {
+            steps {
+                script {
+
+                    env.APP_VERSION = sh(
+                        script: '''
+                            cd application/employee-service
+                            mvn help:evaluate \
+                                -Dexpression=project.version \
+                                -q \
+                                -DforceStdout
+                        ''',
+                        returnStdout: true
+                    ).trim()
+
+                    env.GIT_COMMIT_SHORT = sh(
+                        script: 'git rev-parse --short HEAD',
+                        returnStdout: true
+                    ).trim()
+
+                    env.BUILD_TIME = sh(
+                        script: 'date -u +"%Y-%m-%dT%H:%M:%SZ"',
+                        returnStdout: true
+                    ).trim()
+
+                    echo "==============================================="
+                    echo "BUILD METADATA"
+                    echo "==============================================="
+                    echo "Application : ${APP_NAME}"
+                    echo "Version     : ${APP_VERSION}"
+                    echo "Build       : ${BUILD_NUMBER}"
+                    echo "Git Commit  : ${GIT_COMMIT_SHORT}"
+                    echo "Build Time  : ${BUILD_TIME}"
+                    echo "Docker Image: ${IMAGE_NAME}:${BUILD_NUMBER}"
+                    echo "==============================================="
+                }
+            }
+        }
+
+        stage('Generate Build Info') {
+            steps {
+                script {
+
+                    sh """
+                        mkdir -p application/employee-service/src/main/resources
+
+                        cat > application/employee-service/src/main/resources/info.json <<EOF
+        {
+        "app": {
+            "name": "${APP_NAME}",
+            "description": "Spring Boot Employee Management API",
+            "version": "${APP_VERSION}",
+            "buildNumber": "${BUILD_NUMBER}",
+            "dockerImage": "${IMAGE_NAME}:${BUILD_NUMBER}",
+            "gitCommit": "${GIT_COMMIT_SHORT}",
+            "environment": "Development",
+            "buildTime": "${BUILD_TIME}",
+            "jenkinsJob": "${JOB_NAME}",
+            "jenkinsBuildUrl": "${BUILD_URL}"
+        }
+        }
+        EOF
+                    """
+
+                    echo "Build information generated successfully."
+                }
+            }
+        }
+
         stage('Build') {
             steps {
                 dir('application/employee-service') {
@@ -280,7 +349,7 @@ pipeline {
                     sh """
                         echo "\$DOCKER_PASS" | docker login -u "\$DOCKER_USER" --password-stdin
                         docker push ${IMAGE_NAME}:${env.BUILD_NUMBER}
-                        docker push ${IMAGE_NAME}:latest
+                        # docker push ${IMAGE_NAME}:latest
                         docker logout
                     """
                 }
