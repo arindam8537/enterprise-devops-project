@@ -603,7 +603,8 @@ pipeline {
 
                         cd ${COMPOSE_DIR}
 
-                        export IMAGE_TAG="${env.PREVIOUS_IMAGE:}"
+                        # export IMAGE_TAG="${env.PREVIOUS_IMAGE##*:}"
+                        export IMAGE_TAG="\${PREVIOUS_IMAGE##*:}"
 
                         docker compose down || true
 
