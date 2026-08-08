@@ -32,6 +32,7 @@ pipeline {
 
         DEPLOYMENT_STARTED = "false"
         PREVIOUS_IMAGE = ""
+        IMAGE_TAG  = "${BUILD_NUMBER}"
     }
 
 
