@@ -571,6 +571,86 @@ pipeline {
 
     post {
 
+    success {
+
+        echo '=========================================='
+        echo 'Pipeline completed successfully.'
+        echo '=========================================='
+    }
+
+    failure {
+
+        echo '=========================================='
+        echo 'Pipeline FAILED'
+        echo '=========================================='
+
+        script {
+
+            if (env.DEPLOYMENT_STARTED == "true" &&
+                env.PREVIOUS_IMAGE?.trim()) {
+
+                echo "Deployment was started."
+                echo "Previous image: ${env.PREVIOUS_IMAGE}"
+                echo "Starting automatic rollback..."
+
+                // Extract image tag using Groovy
+                def previousImage = env.PREVIOUS_IMAGE.trim()
+                def previousTag = previousImage.substring(
+                    previousImage.lastIndexOf(':') + 1
+                )
+
+                echo "Previous image tag: ${previousTag}"
+
+                dir("${COMPOSE_DIR}") {
+
+                    withEnv([
+                        "IMAGE_TAG=${previousTag}"
+                    ]) {
+
+                        sh '''
+                            echo "=========================================="
+                            echo "ROLLBACK STARTED"
+                            echo "=========================================="
+
+                            echo "Restoring image:"
+                            echo "${PREVIOUS_IMAGE}"
+
+                            echo "Restoring image tag:"
+                            echo "${IMAGE_TAG}"
+
+                            docker compose down || true
+
+                            docker compose up -d
+
+                            echo "Waiting for rollback application..."
+
+                            sleep 15
+
+                            echo "Running containers:"
+                            docker ps
+
+                            echo "Rollback container logs:"
+                            docker logs ${CONTAINER_NAME} --tail 50 || true
+
+                            echo "=========================================="
+                            echo "ROLLBACK COMPLETED"
+                            echo "Restored: ${PREVIOUS_IMAGE}"
+                            echo "=========================================="
+                        '''
+                    }
+                }
+
+            } else {
+
+                echo "No deployment rollback required."
+                echo "Failure occurred before deployment."
+            }
+        }
+    }
+}
+
+  /*  post {
+
         success {
 
             echo '=========================================='
@@ -632,5 +712,5 @@ pipeline {
                 }
             }
         }
-    }
+    }   */
 }
