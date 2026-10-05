@@ -356,6 +356,29 @@ pipeline {
             }
         }
 
+        stage('Kubernetes Connectivity Test') {
+            steps {
+                sh '''
+                    echo "=========================================="
+                    echo "Kubernetes Connectivity Test"
+                    echo "=========================================="
+
+                    # Purpose: Verify kubectl is available inside Jenkins.
+                    kubectl version --client
+
+                    # Purpose: Verify Jenkins can authenticate to Kubernetes.
+                    kubectl get nodes
+
+                    # Purpose: Verify Jenkins can access our application namespace.
+                    kubectl get namespace employee-devops
+
+                    # Purpose: Verify current Kubernetes application state.
+                    kubectl get deployment -n employee-devops
+                    kubectl get pods -n employee-devops
+                '''
+            }
+        }
+
   /*      stage('Deploy Container') {
             steps {
                 sh """
