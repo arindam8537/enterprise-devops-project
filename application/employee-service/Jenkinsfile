@@ -25,7 +25,7 @@ pipeline {
         K8S_CONTAINER       = "employee-service"
         K8S_SERVICE         = "employee-service"
         K8S_HEALTH_PORT     = "18081"
-        K8S_ROLLOUT_TIMEOUT = "120s"
+        K8S_ROLLOUT_TIMEOUT = "300s"
 
         // SonarQube
         SONARQUBE_SERVER = "SonarQube"
@@ -411,7 +411,7 @@ pipeline {
                             script: """
                                 kubectl get deployment ${K8S_DEPLOYMENT} \
                                 -n ${K8S_NAMESPACE} \
-                                -o jsonpath='{.spec.template.spec.containers[?(@.name=="${K8S_CONTAINER}")].image}'
+                                -o jsonpath='{.spec.template.spec.containers[0].image}'
                             """,
                             returnStdout: true
                         ).trim()
@@ -426,7 +426,7 @@ pipeline {
                         echo "New Image      : ${IMAGE_NAME}:${BUILD_NUMBER}"
                         echo "=========================================="
 
-                        env.DEPLOYMENT_STARTED = "true"
+                    //      env.DEPLOYMENT_STARTED = "true"
                     }
                 }
             }
@@ -533,27 +533,40 @@ pipeline {
                     )
                 ]) {
 
-                    sh """
-                        echo "=========================================="
-                        echo "KUBERNETES DEPLOYMENT"
-                        echo "=========================================="
+                    script {
 
-                        echo "Namespace : ${K8S_NAMESPACE}"
-                        echo "Deployment: ${K8S_DEPLOYMENT}"
-                        echo "Container : ${K8S_CONTAINER}"
-                        echo "Image     : ${IMAGE_NAME}:${BUILD_NUMBER}"
+                        sh """
+                            echo "=========================================="
+                            echo "KUBERNETES DEPLOYMENT"
+                            echo "=========================================="
 
-                        # Purpose:
-                        # Update only the container image.
-                        # This preserves HPA configuration and other live settings.
-                        kubectl set image \
-                            deployment/${K8S_DEPLOYMENT} \
-                            ${K8S_CONTAINER}=${IMAGE_NAME}:${BUILD_NUMBER} \
-                            -n ${K8S_NAMESPACE}
+                            echo "Namespace : ${K8S_NAMESPACE}"
+                            echo "Deployment: ${K8S_DEPLOYMENT}"
+                            echo "Container : ${K8S_CONTAINER}"
+                            echo "Previous  : ${PREVIOUS_IMAGE}"
+                            echo "New Image : ${IMAGE_NAME}:${BUILD_NUMBER}"
 
-                        echo ""
-                        echo "Deployment image updated successfully."
-                    """
+                            if [ -z "${PREVIOUS_IMAGE}" ]; then
+                                echo "ERROR: Previous image was not captured."
+                                exit 1
+                            fi
+
+                            # Purpose:
+                            # Update only the Kubernetes container image.
+                            kubectl set image \
+                                deployment/${K8S_DEPLOYMENT} \
+                                ${K8S_CONTAINER}=${IMAGE_NAME}:${BUILD_NUMBER} \
+                                -n ${K8S_NAMESPACE}
+
+                            echo ""
+                            echo "Deployment image updated successfully."
+                        """
+
+                        // Mark deployment as started only AFTER kubectl set image succeeds.
+                        env.DEPLOYMENT_STARTED = "true"
+
+                        echo "DEPLOYMENT_STARTED = ${env.DEPLOYMENT_STARTED}"
+                    }
                 }
             }
         }
@@ -989,99 +1002,108 @@ pipeline {
 
     post {
 
-    success {
+        success {
 
-        echo '=========================================='
-        echo 'Kubernetes deployment completed successfully.'
-        echo '=========================================='
-    }
+            echo '=========================================='
+            echo 'Kubernetes deployment completed successfully.'
+            echo '=========================================='
+        }
 
-    failure {
+        failure {
 
-        echo '=========================================='
-        echo 'Kubernetes pipeline FAILED'
-        echo '=========================================='
+            echo '=========================================='
+            echo 'Kubernetes pipeline FAILED'
+            echo '=========================================='
 
-        script {
+            script {
 
-            if (env.DEPLOYMENT_STARTED == "true") {
+                if (env.DEPLOYMENT_STARTED == "true") {
 
-                echo "Deployment was started."
-                echo "Previous image: ${env.PREVIOUS_IMAGE}"
-                echo "Attempting Kubernetes rollback..."
+                    echo "Deployment was started."
+                    echo "Previous image: ${env.PREVIOUS_IMAGE}"
+                    echo "Starting Kubernetes rollback..."
 
-                withCredentials([
-                    file(
-                        credentialsId: 'docker-desktop-kubeconfig',
-                        variable: 'KUBECONFIG'
-                    )
-                ]) {
+                    withCredentials([
+                        file(
+                            credentialsId: 'docker-desktop-kubeconfig',
+                            variable: 'KUBECONFIG'
+                        )
+                    ]) {
 
-                    sh """
-                        set +e
+                        sh """
+                            set +e
 
-                        echo "=========================================="
-                        echo "KUBERNETES ROLLBACK STARTED"
-                        echo "=========================================="
+                            echo "=========================================="
+                            echo "ROLLBACK STARTED"
+                            echo "=========================================="
 
-                        echo ""
-                        echo "Current Deployment:"
-                        kubectl get deployment ${K8S_DEPLOYMENT} \
-                            -n ${K8S_NAMESPACE}
+                            echo ""
+                            echo "Current deployment:"
+                            kubectl get deployment ${K8S_DEPLOYMENT} \
+                                -n ${K8S_NAMESPACE}
 
-                        echo ""
-                        echo "Rollout History:"
-                        kubectl rollout history deployment/${K8S_DEPLOYMENT} \
-                            -n ${K8S_NAMESPACE}
+                            echo ""
+                            echo "Current Pods:"
+                            kubectl get pods \
+                                -n ${K8S_NAMESPACE} \
+                                -l app=${APP_NAME}
 
-                        echo ""
-                        echo "Executing rollback..."
+                            echo ""
+                            echo "Rollout history:"
+                            kubectl rollout history deployment/${K8S_DEPLOYMENT} \
+                                -n ${K8S_NAMESPACE}
 
-                        kubectl rollout undo deployment/${K8S_DEPLOYMENT} \
-                            -n ${K8S_NAMESPACE}
+                            echo ""
+                            echo "Executing rollback..."
 
-                        echo ""
-                        echo "Waiting for rollback..."
+                            kubectl rollout undo deployment/${K8S_DEPLOYMENT} \
+                                -n ${K8S_NAMESPACE}
 
-                        kubectl rollout status \
-                            deployment/${K8S_DEPLOYMENT} \
-                            -n ${K8S_NAMESPACE} \
-                            --timeout=${K8S_ROLLOUT_TIMEOUT}
+                            echo ""
+                            echo "Waiting for rollback to complete..."
 
-                        echo ""
-                        echo "=========================================="
-                        echo "ROLLBACK VERIFICATION"
-                        echo "=========================================="
+                            kubectl rollout status \
+                                deployment/${K8S_DEPLOYMENT} \
+                                -n ${K8S_NAMESPACE} \
+                                --timeout=${K8S_ROLLOUT_TIMEOUT}
 
-                        kubectl get deployment ${K8S_DEPLOYMENT} \
-                            -n ${K8S_NAMESPACE}
+                            ROLLBACK_STATUS=\$?
 
-                        kubectl get pods \
-                            -n ${K8S_NAMESPACE} \
-                            -l app=${APP_NAME}
+                            echo ""
+                            echo "Rollback status: \$ROLLBACK_STATUS"
 
-                        echo ""
-                        echo "Current image after rollback:"
+                            echo ""
+                            echo "Deployment after rollback:"
+                            kubectl get deployment ${K8S_DEPLOYMENT} \
+                                -n ${K8S_NAMESPACE}
 
-                        kubectl get deployment ${K8S_DEPLOYMENT} \
-                            -n ${K8S_NAMESPACE} \
-                            -o jsonpath='{.spec.template.spec.containers[0].image}'
+                            echo ""
+                            echo "Pods after rollback:"
+                            kubectl get pods \
+                                -n ${K8S_NAMESPACE} \
+                                -l app=${APP_NAME}
 
-                        echo ""
+                            echo ""
+                            echo "Current image:"
+                            kubectl get deployment ${K8S_DEPLOYMENT} \
+                                -n ${K8S_NAMESPACE} \
+                                -o jsonpath='{.spec.template.spec.containers[0].image}'
 
-                        echo "=========================================="
-                        echo "KUBERNETES ROLLBACK COMPLETED"
-                        echo "=========================================="
-                    """
+                            echo ""
+
+                            echo "=========================================="
+                            echo "ROLLBACK PROCESS COMPLETED"
+                            echo "=========================================="
+                        """
+                    }
+
+                } else {
+
+                    echo "No Kubernetes rollback required."
+                    echo "Failure occurred before kubectl set image succeeded."
                 }
-
-            } else {
-
-                echo "No Kubernetes rollback required."
-                echo "Pipeline failed before deployment started."
             }
         }
     }
-}
 
 }
