@@ -407,6 +407,25 @@ pipeline {
 
                     script {
 
+                        echo "=========================================="
+                        echo "KUBERNETES DEPLOYMENT DEBUG"
+                        echo "=========================================="
+
+                        sh """
+                            echo "Deployment:"
+                            kubectl get deployment ${K8S_DEPLOYMENT} \
+                                -n ${K8S_NAMESPACE} \
+                                -o wide
+
+                            echo ""
+                            echo "Containers:"
+                            kubectl get deployment ${K8S_DEPLOYMENT} \
+                                -n ${K8S_NAMESPACE} \
+                                -o jsonpath='{range .spec.template.spec.containers[*]}{.name}={.image}{"\\n"}{end}'
+
+                            echo "=========================================="
+                        """
+
                         env.PREVIOUS_IMAGE = sh(
                             script: """
                                 kubectl get deployment ${K8S_DEPLOYMENT} \
@@ -426,12 +445,23 @@ pipeline {
                         echo "New Image      : ${IMAGE_NAME}:${BUILD_NUMBER}"
                         echo "=========================================="
 
-                    //      env.DEPLOYMENT_STARTED = "true"
+                        if (!env.PREVIOUS_IMAGE ||
+                            env.PREVIOUS_IMAGE == "null") {
+
+                            error """
+                            Previous Kubernetes image could not be determined.
+
+                            Deployment : ${K8S_DEPLOYMENT}
+                            Namespace  : ${K8S_NAMESPACE}
+                            Captured   : '${env.PREVIOUS_IMAGE}'
+
+                            Deployment will NOT continue.
+                            """
+                        }
                     }
                 }
             }
         }
-
   /*      stage('Deploy Container') {
             steps {
                 sh """
@@ -543,7 +573,7 @@ pipeline {
                             echo "Namespace : ${K8S_NAMESPACE}"
                             echo "Deployment: ${K8S_DEPLOYMENT}"
                             echo "Container : ${K8S_CONTAINER}"
-                            echo "Previous  : ${PREVIOUS_IMAGE}"
+                            echo "Previous  :  \$PREVIOUS_IMAGE"
                             echo "New Image : ${IMAGE_NAME}:${BUILD_NUMBER}"
 
                             if [ -z "${PREVIOUS_IMAGE}" ]; then
