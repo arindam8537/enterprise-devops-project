@@ -137,7 +137,7 @@ pipeline {
                 }
             }
         }
-
+/* --- commented as stuck here frequently "Injecting SonarQube environment variables using the configuration: SonarQube"
         stage('SonarQube Analysis') {
             steps {
                 withSonarQubeEnv("${SONARQUBE_SERVER}") {
@@ -163,7 +163,7 @@ pipeline {
 
             }
 
-        } 
+        } -- commented as stuck here frequently "Injecting SonarQube environment variables using the configuration: SonarQube" */
 
         stage('Archive Artifact') {
             steps {
