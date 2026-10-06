@@ -19,6 +19,14 @@ pipeline {
         COMPOSE_DIR     = "deployment"
         NETWORK_NAME    = "deployment_employee-network"
 
+        // Kubernetes
+        K8S_NAMESPACE       = "employee-devops"
+        K8S_DEPLOYMENT      = "employee-service"
+        K8S_CONTAINER       = "employee-service"
+        K8S_SERVICE         = "employee-service"
+        K8S_HEALTH_PORT     = "18081"
+        K8S_ROLLOUT_TIMEOUT = "120s"
+
         // SonarQube
         SONARQUBE_SERVER = "SonarQube"
         SONAR_PROJECT_KEY = "employee-service"
@@ -386,6 +394,44 @@ pipeline {
             }
         }
 
+        stage('Capture Kubernetes Deployment State') {
+
+            steps {
+
+                withCredentials([
+                    file(
+                        credentialsId: 'docker-desktop-kubeconfig',
+                        variable: 'KUBECONFIG'
+                    )
+                ]) {
+
+                    script {
+
+                        env.PREVIOUS_IMAGE = sh(
+                            script: """
+                                kubectl get deployment ${K8S_DEPLOYMENT} \
+                                -n ${K8S_NAMESPACE} \
+                                -o jsonpath='{.spec.template.spec.containers[?(@.name=="${K8S_CONTAINER}")].image}'
+                            """,
+                            returnStdout: true
+                        ).trim()
+
+                        echo "=========================================="
+                        echo "CURRENT KUBERNETES DEPLOYMENT"
+                        echo "=========================================="
+                        echo "Deployment     : ${K8S_DEPLOYMENT}"
+                        echo "Namespace      : ${K8S_NAMESPACE}"
+                        echo "Container      : ${K8S_CONTAINER}"
+                        echo "Previous Image : ${env.PREVIOUS_IMAGE}"
+                        echo "New Image      : ${IMAGE_NAME}:${BUILD_NUMBER}"
+                        echo "=========================================="
+
+                        env.DEPLOYMENT_STARTED = "true"
+                    }
+                }
+            }
+        }
+
   /*      stage('Deploy Container') {
             steps {
                 sh """
@@ -427,7 +473,7 @@ pipeline {
                 }
             }
         }    */
-
+/* --- commented as adding k8s deployment stage 
         stage('Deploy Container') {
 
             steps {
@@ -474,8 +520,148 @@ pipeline {
                     }
                 }
             }
+        }   -- commented as adding k8s deployment stage  */
+
+        stage('Deploy to Kubernetes') {
+
+            steps {
+
+                withCredentials([
+                    file(
+                        credentialsId: 'docker-desktop-kubeconfig',
+                        variable: 'KUBECONFIG'
+                    )
+                ]) {
+
+                    sh """
+                        echo "=========================================="
+                        echo "KUBERNETES DEPLOYMENT"
+                        echo "=========================================="
+
+                        echo "Namespace : ${K8S_NAMESPACE}"
+                        echo "Deployment: ${K8S_DEPLOYMENT}"
+                        echo "Container : ${K8S_CONTAINER}"
+                        echo "Image     : ${IMAGE_NAME}:${BUILD_NUMBER}"
+
+                        # Purpose:
+                        # Update only the container image.
+                        # This preserves HPA configuration and other live settings.
+                        kubectl set image \
+                            deployment/${K8S_DEPLOYMENT} \
+                            ${K8S_CONTAINER}=${IMAGE_NAME}:${BUILD_NUMBER} \
+                            -n ${K8S_NAMESPACE}
+
+                        echo ""
+                        echo "Deployment image updated successfully."
+                    """
+                }
+            }
         }
 
+        stage('Annotate Deployment') {
+
+            steps {
+
+                withCredentials([
+                    file(
+                        credentialsId: 'docker-desktop-kubeconfig',
+                        variable: 'KUBECONFIG'
+                    )
+                ]) {
+
+                    sh """
+                        # Purpose:
+                        # Record why this Kubernetes Deployment changed.
+                        kubectl annotate deployment ${K8S_DEPLOYMENT} \
+                            -n ${K8S_NAMESPACE} \
+                            kubernetes.io/change-cause="Jenkins Build #${BUILD_NUMBER} - ${IMAGE_NAME}:${BUILD_NUMBER} - Commit ${GIT_COMMIT_SHORT}" \
+                            --overwrite
+
+                        echo "Deployment change cause recorded."
+                    """
+                }
+            }
+        }
+
+        stage('Kubernetes Rollout Status') {
+
+            steps {
+
+                withCredentials([
+                    file(
+                        credentialsId: 'docker-desktop-kubeconfig',
+                        variable: 'KUBECONFIG'
+                    )
+                ]) {
+
+                    sh """
+                        echo "=========================================="
+                        echo "WAITING FOR KUBERNETES ROLLOUT"
+                        echo "=========================================="
+
+                        kubectl rollout status \
+                            deployment/${K8S_DEPLOYMENT} \
+                            -n ${K8S_NAMESPACE} \
+                            --timeout=${K8S_ROLLOUT_TIMEOUT}
+
+                        echo ""
+                        echo "Rollout completed successfully."
+                    """
+                }
+            }
+        }
+
+        stage('Verify Kubernetes Resources') {
+
+            steps {
+
+                withCredentials([
+                    file(
+                        credentialsId: 'docker-desktop-kubeconfig',
+                        variable: 'KUBECONFIG'
+                    )
+                ]) {
+
+                    sh """
+                        echo "=========================================="
+                        echo "KUBERNETES RESOURCE VERIFICATION"
+                        echo "=========================================="
+
+                        echo ""
+                        echo "Deployment:"
+                        kubectl get deployment ${K8S_DEPLOYMENT} \
+                            -n ${K8S_NAMESPACE}
+
+                        echo ""
+                        echo "Pods:"
+                        kubectl get pods \
+                            -n ${K8S_NAMESPACE} \
+                            -l app=${APP_NAME} \
+                            -o wide
+
+                        echo ""
+                        echo "Service:"
+                        kubectl get service ${K8S_SERVICE} \
+                            -n ${K8S_NAMESPACE}
+
+                        echo ""
+                        echo "EndpointSlices:"
+                        kubectl get endpointslices \
+                            -n ${K8S_NAMESPACE} \
+                            -l kubernetes.io/service-name=${K8S_SERVICE}
+
+                        echo ""
+                        echo "Deployment image:"
+                        kubectl get deployment ${K8S_DEPLOYMENT} \
+                            -n ${K8S_NAMESPACE} \
+                            -o jsonpath='{.spec.template.spec.containers[0].image}'
+
+                        echo ""
+                    """
+                }
+            }
+        }
+/* -- commented as adding new health check stage for k8s deployment
         stage('Health Check') {
             steps {
                 sh '''
@@ -518,8 +704,96 @@ pipeline {
                     exit 1
                 '''
             }
-        }
+        } -- commented as adding new health check stage for k8s deployment */
 
+        stage('Application Health Check') {
+
+            steps {
+
+                withCredentials([
+                    file(
+                        credentialsId: 'docker-desktop-kubeconfig',
+                        variable: 'KUBECONFIG'
+                    )
+                ]) {
+
+                    sh """
+                        set -e
+
+                        echo "=========================================="
+                        echo "APPLICATION HEALTH CHECK"
+                        echo "=========================================="
+
+                        # Purpose:
+                        # Create a temporary connection from Jenkins
+                        # to the Kubernetes Service.
+                        kubectl port-forward \
+                            service/${K8S_SERVICE} \
+                            ${K8S_HEALTH_PORT}:${APP_PORT} \
+                            -n ${K8S_NAMESPACE} \
+                            >/tmp/employee-service-port-forward.log 2>&1 &
+
+                        PF_PID=\$!
+
+                        echo "Port-forward PID: \$PF_PID"
+
+                        # Purpose:
+                        # Give kubectl port-forward a moment to establish.
+                        sleep 5
+
+                        echo ""
+                        echo "Port-forward log:"
+                        cat /tmp/employee-service-port-forward.log || true
+
+                        MAX_RETRIES=12
+                        RETRY_INTERVAL=5
+                        COUNT=1
+
+                        while [ \$COUNT -le \$MAX_RETRIES ]
+                        do
+
+                            echo ""
+                            echo "Health check attempt \$COUNT of \$MAX_RETRIES"
+
+                            if curl -fsS \
+                                http://127.0.0.1:${K8S_HEALTH_PORT}${HEALTH_ENDPOINT}
+                            then
+
+                                echo ""
+                                echo "=========================================="
+                                echo "APPLICATION HEALTH CHECK PASSED"
+                                echo "=========================================="
+
+                                kill \$PF_PID || true
+
+                                exit 0
+                            fi
+
+                            echo "Application is not ready yet."
+
+                            sleep \$RETRY_INTERVAL
+
+                            COUNT=\$((COUNT+1))
+
+                        done
+
+                        echo ""
+                        echo "=========================================="
+                        echo "APPLICATION HEALTH CHECK FAILED"
+                        echo "=========================================="
+
+                        echo ""
+                        echo "Port-forward log:"
+                        cat /tmp/employee-service-port-forward.log || true
+
+                        kill \$PF_PID || true
+
+                        exit 1
+                    """
+                }
+            }
+        }
+/* -- commented as adding new smoke test stage for k8s deployment
         stage('Smoke Test') {
             steps {
                 sh """
@@ -560,8 +834,71 @@ pipeline {
                     echo "Smoke Test Passed"
                 """
             }
-        }
+        }  -- commented as adding new smoke test stage for k8s deployment */
 
+        stage('Application Smoke Test') {
+
+            steps {
+
+                withCredentials([
+                    file(
+                        credentialsId: 'docker-desktop-kubeconfig',
+                        variable: 'KUBECONFIG'
+                    )
+                ]) {
+
+                    sh """
+                        set -e
+
+                        echo "=========================================="
+                        echo "APPLICATION SMOKE TEST"
+                        echo "=========================================="
+
+                        kubectl port-forward \
+                            service/${K8S_SERVICE} \
+                            ${K8S_HEALTH_PORT}:${APP_PORT} \
+                            -n ${K8S_NAMESPACE} \
+                            >/tmp/employee-service-smoke.log 2>&1 &
+
+                        PF_PID=\$!
+
+                        sleep 5
+
+                        echo ""
+                        echo "Testing GET /employees"
+
+                        HTTP_CODE=\$(curl \
+                            -s \
+                            -o /tmp/employees.json \
+                            -w "%{http_code}" \
+                            http://127.0.0.1:${K8S_HEALTH_PORT}/employees)
+
+                        echo "HTTP Status: \$HTTP_CODE"
+
+                        cat /tmp/employees.json
+
+                        if [ "\$HTTP_CODE" != "200" ]; then
+
+                            echo ""
+                            echo "Smoke test failed."
+
+                            kill \$PF_PID || true
+
+                            exit 1
+                        fi
+
+                        echo ""
+                        echo "=========================================="
+                        echo "SMOKE TEST PASSED"
+                        echo "=========================================="
+                        echo "GET /employees returned HTTP 200"
+
+                        kill \$PF_PID || true
+                    """
+                }
+            }
+        }
+/* -- commented as adding new deployment summary for k8s deployment
         stage('Deployment Summary') {
             steps {
                 script {
@@ -591,225 +928,160 @@ pipeline {
                     """
                 }
             }
-        }
+        } --commented as adding new deployment summary for k8s deployment  */
 
-   /*     stage('Health Check') {
+        stage('Kubernetes Deployment Summary') {
+
             steps {
-                sh '''
-                    echo "Waiting for application to start..."
-                    sleep 20
 
-                    echo "Running Health Check..."
+                withCredentials([
+                    file(
+                        credentialsId: 'docker-desktop-kubeconfig',
+                        variable: 'KUBECONFIG'
+                    )
+                ]) {
 
-                   # curl -f http://employee-service:8081/employees
-                   # curl -f  http://localhost:8081/employees
+                    sh """
+                        echo ""
+                        echo "==============================================================="
+                        echo "              KUBERNETES DEPLOYMENT SUMMARY"
+                        echo "==============================================================="
 
+                        echo "Application       : ${APP_NAME}"
+                        echo "Namespace         : ${K8S_NAMESPACE}"
+                        echo "Deployment        : ${K8S_DEPLOYMENT}"
+                        echo "Container         : ${K8S_CONTAINER}"
 
-                '''
+                        echo ""
+                        echo "Previous Image    : ${PREVIOUS_IMAGE}"
+                        echo "Current Image     : ${IMAGE_NAME}:${BUILD_NUMBER}"
+
+                        echo ""
+                        echo "Git Commit        : ${GIT_COMMIT_SHORT}"
+                        echo "Jenkins Build     : ${BUILD_NUMBER}"
+
+                        echo ""
+                        echo "Deployment Status:"
+                        kubectl get deployment ${K8S_DEPLOYMENT} \
+                            -n ${K8S_NAMESPACE}
+
+                        echo ""
+                        echo "Pods:"
+                        kubectl get pods \
+                            -n ${K8S_NAMESPACE} \
+                            -l app=${APP_NAME}
+
+                        echo ""
+                        echo "Service:"
+                        kubectl get service ${K8S_SERVICE} \
+                            -n ${K8S_NAMESPACE}
+
+                        echo ""
+                        echo "==============================================================="
+                        echo "              DEPLOYMENT SUCCESSFUL"
+                        echo "==============================================================="
+                    """
+                }
             }
         }
 
-        stage('Smoke Test') {
-            steps {
-                sh '''
-                    echo "Running Smoke Test..."
-
-                    curl -X POST http://localhost:8081/employees \
-                    -H "Content-Type: application/json" \
-                    -d '{
-                        "firstName":"Arindam",
-                        "lastName":"Tiwari",
-                        "email":"arindam@example.com",
-                        "department":"IT",
-                        "salary":90000
-                    }'
-
-                    echo ""
-                    echo "Verifying inserted employee..."
-
-                    curl -f http://employee-service:8081/employees
-
-                    echo ""
-                    echo "Smoke Test Passed"
-                '''
-            }
-        }  */
-
-        stage('Verify Deployment') {
-            steps {
-                sh '''
-                    sleep 20
-
-                    docker ps
-
-                    docker logs ${CONTAINER_NAME} --tail 50
-                '''
-            }
-        }
-
-        stage('Docker Cleanup') {
-            steps {
-                sh """
-                    echo "Cleaning Docker..."
-
-                    docker image prune -af --filter "until=24h"
-                    # docker image prune -f
-                    # docker builder prune -f
-
-                    echo "Docker Cleanup Completed."
-                """
-            }
-        }
-
-   /*     stage('List Docker Images') {
-            steps {
-                sh 'docker images'
-            }
-        } */
-    } 
+    }
 
     post {
 
     success {
 
         echo '=========================================='
-        echo 'Pipeline completed successfully.'
+        echo 'Kubernetes deployment completed successfully.'
         echo '=========================================='
     }
 
     failure {
 
         echo '=========================================='
-        echo 'Pipeline FAILED'
+        echo 'Kubernetes pipeline FAILED'
         echo '=========================================='
 
         script {
 
-            if (env.DEPLOYMENT_STARTED == "true" &&
-                env.PREVIOUS_IMAGE?.trim()) {
+            if (env.DEPLOYMENT_STARTED == "true") {
 
                 echo "Deployment was started."
                 echo "Previous image: ${env.PREVIOUS_IMAGE}"
-                echo "Starting automatic rollback..."
+                echo "Attempting Kubernetes rollback..."
 
-                // Extract image tag using Groovy
-                def previousImage = env.PREVIOUS_IMAGE.trim()
-                def previousTag = previousImage.substring(
-                    previousImage.lastIndexOf(':') + 1
-                )
+                withCredentials([
+                    file(
+                        credentialsId: 'docker-desktop-kubeconfig',
+                        variable: 'KUBECONFIG'
+                    )
+                ]) {
 
-                echo "Previous image tag: ${previousTag}"
+                    sh """
+                        set +e
 
-                dir("${COMPOSE_DIR}") {
+                        echo "=========================================="
+                        echo "KUBERNETES ROLLBACK STARTED"
+                        echo "=========================================="
 
-                    withEnv([
-                        "IMAGE_TAG=${previousTag}"
-                    ]) {
+                        echo ""
+                        echo "Current Deployment:"
+                        kubectl get deployment ${K8S_DEPLOYMENT} \
+                            -n ${K8S_NAMESPACE}
 
-                        sh '''
-                            echo "=========================================="
-                            echo "ROLLBACK STARTED"
-                            echo "=========================================="
+                        echo ""
+                        echo "Rollout History:"
+                        kubectl rollout history deployment/${K8S_DEPLOYMENT} \
+                            -n ${K8S_NAMESPACE}
 
-                            echo "Restoring image:"
-                            echo "${PREVIOUS_IMAGE}"
+                        echo ""
+                        echo "Executing rollback..."
 
-                            echo "Restoring image tag:"
-                            echo "${IMAGE_TAG}"
+                        kubectl rollout undo deployment/${K8S_DEPLOYMENT} \
+                            -n ${K8S_NAMESPACE}
 
-                            docker compose down || true
+                        echo ""
+                        echo "Waiting for rollback..."
 
-                            docker compose up -d
+                        kubectl rollout status \
+                            deployment/${K8S_DEPLOYMENT} \
+                            -n ${K8S_NAMESPACE} \
+                            --timeout=${K8S_ROLLOUT_TIMEOUT}
 
-                            echo "Waiting for rollback application..."
+                        echo ""
+                        echo "=========================================="
+                        echo "ROLLBACK VERIFICATION"
+                        echo "=========================================="
 
-                            sleep 15
+                        kubectl get deployment ${K8S_DEPLOYMENT} \
+                            -n ${K8S_NAMESPACE}
 
-                            echo "Running containers:"
-                            docker ps
+                        kubectl get pods \
+                            -n ${K8S_NAMESPACE} \
+                            -l app=${APP_NAME}
 
-                            echo "Rollback container logs:"
-                            docker logs ${CONTAINER_NAME} --tail 50 || true
+                        echo ""
+                        echo "Current image after rollback:"
 
-                            echo "=========================================="
-                            echo "ROLLBACK COMPLETED"
-                            echo "Restored: ${PREVIOUS_IMAGE}"
-                            echo "=========================================="
-                        '''
-                    }
+                        kubectl get deployment ${K8S_DEPLOYMENT} \
+                            -n ${K8S_NAMESPACE} \
+                            -o jsonpath='{.spec.template.spec.containers[0].image}'
+
+                        echo ""
+
+                        echo "=========================================="
+                        echo "KUBERNETES ROLLBACK COMPLETED"
+                        echo "=========================================="
+                    """
                 }
 
             } else {
 
-                echo "No deployment rollback required."
-                echo "Failure occurred before deployment."
+                echo "No Kubernetes rollback required."
+                echo "Pipeline failed before deployment started."
             }
         }
     }
 }
 
-  /*  post {
-
-        success {
-
-            echo '=========================================='
-            echo 'Pipeline completed successfully.'
-            echo '=========================================='
-        }
-
-        failure {
-
-            echo '=========================================='
-            echo 'Pipeline FAILED'
-            echo '=========================================='
-
-            script {
-
-                if (env.DEPLOYMENT_STARTED == "true" &&
-                    env.PREVIOUS_IMAGE?.trim()) {
-
-                    echo "Deployment was started."
-                    echo "Previous image: ${env.PREVIOUS_IMAGE}"
-                    echo "Starting automatic rollback..."
-
-                    sh """
-                        echo "=========================================="
-                        echo "ROLLBACK STARTED"
-                        echo "=========================================="
-
-                        echo "Restoring image:"
-                        echo "${env.PREVIOUS_IMAGE}"
-
-                        cd ${COMPOSE_DIR}
-
-                        # export IMAGE_TAG="${env.PREVIOUS_IMAGE##*:}"
-                        export IMAGE_TAG="\${PREVIOUS_IMAGE##*:}"
-
-                        docker compose down || true
-
-                        docker compose up -d
-
-                        echo "Waiting for rollback application..."
-
-                        sleep 15
-
-                        docker ps
-
-                        echo "Rollback container logs:"
-                        docker logs ${CONTAINER_NAME} --tail 50 || true
-
-                        echo "=========================================="
-                        echo "ROLLBACK COMPLETED"
-                        echo "Restored: ${env.PREVIOUS_IMAGE}"
-                        echo "=========================================="
-                    """
-
-                } else {
-
-                    echo "No deployment rollback required."
-                    echo "Failure occurred before deployment."
-                }
-            }
-        }
-    }   */
 }
