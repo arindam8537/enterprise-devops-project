@@ -129,7 +129,7 @@ pipeline {
                 }
             }
         }
-/* -- temp basis
+
         stage('SonarQube Analysis') {
             steps {
                 withSonarQubeEnv("${SONARQUBE_SERVER}") {
@@ -155,7 +155,7 @@ pipeline {
 
             }
 
-        } -- temp basis */
+        } 
 
         stage('Archive Artifact') {
             steps {
