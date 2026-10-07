@@ -411,6 +411,10 @@ pipeline {
                         echo "KUBERNETES DEPLOYMENT DEBUG"
                         echo "=========================================="
 
+                        /*
+                        * First verify that the Deployment exists
+                        * and show the actual container/image information.
+                        */
                         sh """
                             echo "Deployment:"
                             kubectl get deployment ${K8S_DEPLOYMENT} \
@@ -418,19 +422,35 @@ pipeline {
                                 -o wide
 
                             echo ""
-                            echo "Containers:"
+                            echo "Containers and Images:"
+
                             kubectl get deployment ${K8S_DEPLOYMENT} \
                                 -n ${K8S_NAMESPACE} \
-                                -o jsonpath='{range .spec.template.spec.containers[*]}{.name}={.image}{"\\n"}{end}'
+                                -o json \
+                                | jq -r '.spec.template.spec.containers[] | "Container=" + .name + " Image=" + .image'
 
+                            echo ""
                             echo "=========================================="
                         """
 
+                        /*
+                        * Capture the image belonging specifically
+                        * to the Kubernetes container we are deploying.
+                        *
+                        * jq is used here instead of JSONPath so that
+                        * we explicitly select the container by name.
+                        */
                         env.PREVIOUS_IMAGE = sh(
                             script: """
+                                set -e
+
                                 kubectl get deployment ${K8S_DEPLOYMENT} \
-                                -n ${K8S_NAMESPACE} \
-                                -o jsonpath='{.spec.template.spec.containers[0].image}'
+                                    -n ${K8S_NAMESPACE} \
+                                    -o json \
+                                | jq -r --arg CONTAINER "${K8S_CONTAINER}" \
+                                    '.spec.template.spec.containers[]
+                                    | select(.name == \$CONTAINER)
+                                    | .image'
                             """,
                             returnStdout: true
                         ).trim()
@@ -445,23 +465,33 @@ pipeline {
                         echo "New Image      : ${IMAGE_NAME}:${BUILD_NUMBER}"
                         echo "=========================================="
 
+                        /*
+                        * Never continue if Kubernetes did not return
+                        * an actual image.
+                        */
                         if (!env.PREVIOUS_IMAGE ||
-                            env.PREVIOUS_IMAGE == "null") {
+                            env.PREVIOUS_IMAGE.trim() == "" ||
+                            env.PREVIOUS_IMAGE.trim() == "null") {
 
                             error """
                             Previous Kubernetes image could not be determined.
 
                             Deployment : ${K8S_DEPLOYMENT}
                             Namespace  : ${K8S_NAMESPACE}
+                            Container  : ${K8S_CONTAINER}
                             Captured   : '${env.PREVIOUS_IMAGE}'
 
                             Deployment will NOT continue.
                             """
                         }
+
+                        echo "Previous Kubernetes image captured successfully:"
+                        echo "${env.PREVIOUS_IMAGE}"
                     }
                 }
             }
         }
+
   /*      stage('Deploy Container') {
             steps {
                 sh """
@@ -565,24 +595,25 @@ pipeline {
 
                     script {
 
+                        echo "=========================================="
+                        echo "KUBERNETES DEPLOYMENT"
+                        echo "=========================================="
+
+                        echo "Namespace : ${K8S_NAMESPACE}"
+                        echo "Deployment: ${K8S_DEPLOYMENT}"
+                        echo "Container : ${K8S_CONTAINER}"
+                        echo "Previous  : ${env.PREVIOUS_IMAGE}"
+                        echo "New Image : ${IMAGE_NAME}:${BUILD_NUMBER}"
+
+                        /*
+                        * Update only the Kubernetes image.
+                        *
+                        * If kubectl set image fails, Jenkins stops here
+                        * and DEPLOYMENT_STARTED remains false.
+                        */
                         sh """
-                            echo "=========================================="
-                            echo "KUBERNETES DEPLOYMENT"
-                            echo "=========================================="
+                            set -e
 
-                            echo "Namespace : ${K8S_NAMESPACE}"
-                            echo "Deployment: ${K8S_DEPLOYMENT}"
-                            echo "Container : ${K8S_CONTAINER}"
-                            echo "Previous  :  \$PREVIOUS_IMAGE"
-                            echo "New Image : ${IMAGE_NAME}:${BUILD_NUMBER}"
-
-                            if [ -z "${PREVIOUS_IMAGE}" ]; then
-                                echo "ERROR: Previous image was not captured."
-                                exit 1
-                            fi
-
-                            # Purpose:
-                            # Update only the Kubernetes container image.
                             kubectl set image \
                                 deployment/${K8S_DEPLOYMENT} \
                                 ${K8S_CONTAINER}=${IMAGE_NAME}:${BUILD_NUMBER} \
@@ -590,9 +621,20 @@ pipeline {
 
                             echo ""
                             echo "Deployment image updated successfully."
+
+                            echo ""
+                            echo "Current Deployment Image:"
+                            kubectl get deployment ${K8S_DEPLOYMENT} \
+                                -n ${K8S_NAMESPACE} \
+                                -o jsonpath='{.spec.template.spec.containers[?(@.name=="${K8S_CONTAINER}")].image}'
+
+                            echo ""
                         """
 
-                        // Mark deployment as started only AFTER kubectl set image succeeds.
+                        /*
+                        * IMPORTANT:
+                        * Set this ONLY after kubectl set image succeeded.
+                        */
                         env.DEPLOYMENT_STARTED = "true"
 
                         echo "DEPLOYMENT_STARTED = ${env.DEPLOYMENT_STARTED}"
