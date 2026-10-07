@@ -918,32 +918,51 @@ pipeline {
                         echo "Container         : ${K8S_CONTAINER}"
 
                         echo ""
-                        echo "Previous Image    : Restored automatically by Kubernetes rollout undo on failure"
-                        echo "Current Image     : ${IMAGE_NAME}:${BUILD_NUMBER}"
-
-                        echo ""
+                        echo "Image             : ${IMAGE_NAME}:${BUILD_NUMBER}"
                         echo "Git Commit        : ${GIT_COMMIT_SHORT}"
-                        echo "Jenkins Build     : ${BUILD_NUMBER}"
+                        echo "Build Number      : ${BUILD_NUMBER}"
 
                         echo ""
-                        echo "Deployment Status:"
+                        echo "-------------- Kubernetes Status ----------------"
+
                         kubectl get deployment ${K8S_DEPLOYMENT} \
                             -n ${K8S_NAMESPACE}
 
                         echo ""
                         echo "Pods:"
+
                         kubectl get pods \
                             -n ${K8S_NAMESPACE} \
-                            -l app=${APP_NAME}
+                            -l app=${APP_NAME} \
+                            -o wide
 
                         echo ""
                         echo "Service:"
+
                         kubectl get service ${K8S_SERVICE} \
                             -n ${K8S_NAMESPACE}
 
                         echo ""
-                        echo "==============================================================="
-                        echo "              DEPLOYMENT SUCCESSFUL"
+                        echo "-------------- Application Access ----------------"
+
+                        echo "Application URL : http://localhost:${APP_PORT}/employees"
+                        echo "Health URL      : http://localhost:${APP_PORT}${HEALTH_ENDPOINT}"
+                        echo "Info URL        : http://localhost:${APP_PORT}/actuator/info"
+
+                        echo ""
+                        echo "NOTE:"
+                        echo "The above localhost URLs require kubectl port-forward"
+                        echo "from the local machine."
+
+                        echo ""
+                        echo "-------------- Jenkins Information ----------------"
+
+                        echo "Jenkins Job     : ${JOB_NAME}"
+                        echo "Build URL       : ${BUILD_URL}"
+
+                        echo ""
+                        echo "Status          : DEPLOYMENT SUCCESSFUL"
+
                         echo "==============================================================="
                     """
                 }
