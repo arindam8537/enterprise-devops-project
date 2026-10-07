@@ -39,7 +39,7 @@ pipeline {
         NVD_API_KEY = credentials('nvd-api-key')
 
         DEPLOYMENT_STARTED = "false"
-        PREVIOUS_IMAGE = ""
+     //   PREVIOUS_IMAGE = ""
         IMAGE_TAG  = "${BUILD_NUMBER}"
     }
 
@@ -408,21 +408,23 @@ pipeline {
                     script {
 
                         echo "=========================================="
-                        echo "KUBERNETES DEPLOYMENT DEBUG"
+                        echo "CURRENT KUBERNETES DEPLOYMENT"
                         echo "=========================================="
 
                         /*
-                        * Verify Deployment and show current image.
+                        * Kubernetes is the source of truth.
+                        * We only display the currently deployed image here.
+                        *
+                        * We do NOT store it in env.PREVIOUS_IMAGE.
                         */
+
                         sh """
-                            echo "Deployment:"
-                            kubectl get deployment ${K8S_DEPLOYMENT} \
-                                -n ${K8S_NAMESPACE} \
-                                -o wide
+                            echo "Deployment     : ${K8S_DEPLOYMENT}"
+                            echo "Namespace      : ${K8S_NAMESPACE}"
+                            echo "Container      : ${K8S_CONTAINER}"
 
                             echo ""
-                            echo "Current container image:"
-
+                            echo "Current Image:"
                             kubectl get deployment ${K8S_DEPLOYMENT} \
                                 -n ${K8S_NAMESPACE} \
                                 -o jsonpath='{.spec.template.spec.containers[0].image}'
@@ -430,49 +432,6 @@ pipeline {
                             echo ""
                             echo "=========================================="
                         """
-
-                        /*
-                        * Capture the current Kubernetes image.
-                        *
-                        * No jq.
-                        * No shell variable interpolation.
-                        */
-                        env.PREVIOUS_IMAGE = sh(
-                            script: """
-                                kubectl get deployment ${K8S_DEPLOYMENT} \
-                                    -n ${K8S_NAMESPACE} \
-                                    -o jsonpath='{.spec.template.spec.containers[0].image}'
-                            """,
-                            returnStdout: true
-                        ).trim()
-
-                        echo "=========================================="
-                        echo "CURRENT KUBERNETES DEPLOYMENT"
-                        echo "=========================================="
-                        echo "Deployment     : ${K8S_DEPLOYMENT}"
-                        echo "Namespace      : ${K8S_NAMESPACE}"
-                        echo "Container      : ${K8S_CONTAINER}"
-                        echo "Previous Image : ${env.PREVIOUS_IMAGE}"
-                        echo "New Image      : ${IMAGE_NAME}:${BUILD_NUMBER}"
-                        echo "=========================================="
-
-                        if (!env.PREVIOUS_IMAGE ||
-                            env.PREVIOUS_IMAGE.trim() == "" ||
-                            env.PREVIOUS_IMAGE.trim() == "null") {
-
-                            error """
-                            Previous Kubernetes image could not be determined.
-
-                            Deployment : ${K8S_DEPLOYMENT}
-                            Namespace  : ${K8S_NAMESPACE}
-                            Container  : ${K8S_CONTAINER}
-                            Captured   : '${env.PREVIOUS_IMAGE}'
-
-                            Deployment will NOT continue.
-                            """
-                        }
-
-                        echo "Previous Kubernetes image captured successfully."
                     }
                 }
             }
@@ -522,14 +481,14 @@ pipeline {
                         echo "Namespace : ${K8S_NAMESPACE}"
                         echo "Deployment: ${K8S_DEPLOYMENT}"
                         echo "Container : ${K8S_CONTAINER}"
-                        echo "Previous  : ${env.PREVIOUS_IMAGE}"
                         echo "New Image : ${IMAGE_NAME}:${BUILD_NUMBER}"
 
                         /*
-                        * Update only the Kubernetes image.
+                        * Update the Deployment image.
                         *
-                        * If kubectl set image fails, Jenkins stops here
-                        * and DEPLOYMENT_STARTED remains false.
+                        * If this command fails:
+                        *   DEPLOYMENT_STARTED remains false
+                        *   rollback will NOT be attempted.
                         */
                         sh """
                             set -e
@@ -543,17 +502,18 @@ pipeline {
                             echo "Deployment image updated successfully."
 
                             echo ""
-                            echo "Current Deployment Image:"
+                            echo "New Kubernetes Image:"
+
                             kubectl get deployment ${K8S_DEPLOYMENT} \
                                 -n ${K8S_NAMESPACE} \
-                                -o jsonpath='{.spec.template.spec.containers[?(@.name=="${K8S_CONTAINER}")].image}'
+                                -o jsonpath='{.spec.template.spec.containers[0].image}'
 
                             echo ""
                         """
 
                         /*
                         * IMPORTANT:
-                        * Set this ONLY after kubectl set image succeeded.
+                        * This is set ONLY after kubectl set image succeeds.
                         */
                         env.DEPLOYMENT_STARTED = "true"
 
@@ -958,7 +918,7 @@ pipeline {
                         echo "Container         : ${K8S_CONTAINER}"
 
                         echo ""
-                        echo "Previous Image    : ${PREVIOUS_IMAGE}"
+                        echo "Previous Image    : Restored automatically by Kubernetes rollout undo on failure"
                         echo "Current Image     : ${IMAGE_NAME}:${BUILD_NUMBER}"
 
                         echo ""
@@ -1012,7 +972,7 @@ pipeline {
                 if (env.DEPLOYMENT_STARTED == "true") {
 
                     echo "Deployment was started."
-                    echo "Previous image: ${env.PREVIOUS_IMAGE}"
+                    echo "Kubernetes rollout rollback will restore the previous ReplicaSet."
                     echo "Starting Kubernetes rollback..."
 
                     withCredentials([
