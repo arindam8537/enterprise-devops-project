@@ -412,8 +412,7 @@ pipeline {
                         echo "=========================================="
 
                         /*
-                        * First verify that the Deployment exists
-                        * and show the actual container/image information.
+                        * Verify Deployment and show current image.
                         */
                         sh """
                             echo "Deployment:"
@@ -422,35 +421,27 @@ pipeline {
                                 -o wide
 
                             echo ""
-                            echo "Containers and Images:"
+                            echo "Current container image:"
 
                             kubectl get deployment ${K8S_DEPLOYMENT} \
                                 -n ${K8S_NAMESPACE} \
-                                -o json \
-                                | jq -r '.spec.template.spec.containers[] | "Container=" + .name + " Image=" + .image'
+                                -o jsonpath='{.spec.template.spec.containers[0].image}'
 
                             echo ""
                             echo "=========================================="
                         """
 
                         /*
-                        * Capture the image belonging specifically
-                        * to the Kubernetes container we are deploying.
+                        * Capture the current Kubernetes image.
                         *
-                        * jq is used here instead of JSONPath so that
-                        * we explicitly select the container by name.
+                        * No jq.
+                        * No shell variable interpolation.
                         */
                         env.PREVIOUS_IMAGE = sh(
                             script: """
-                                set -e
-
                                 kubectl get deployment ${K8S_DEPLOYMENT} \
                                     -n ${K8S_NAMESPACE} \
-                                    -o json \
-                                | jq -r --arg CONTAINER "${K8S_CONTAINER}" \
-                                    '.spec.template.spec.containers[]
-                                    | select(.name == \$CONTAINER)
-                                    | .image'
+                                    -o jsonpath='{.spec.template.spec.containers[0].image}'
                             """,
                             returnStdout: true
                         ).trim()
@@ -465,10 +456,6 @@ pipeline {
                         echo "New Image      : ${IMAGE_NAME}:${BUILD_NUMBER}"
                         echo "=========================================="
 
-                        /*
-                        * Never continue if Kubernetes did not return
-                        * an actual image.
-                        */
                         if (!env.PREVIOUS_IMAGE ||
                             env.PREVIOUS_IMAGE.trim() == "" ||
                             env.PREVIOUS_IMAGE.trim() == "null") {
@@ -485,31 +472,12 @@ pipeline {
                             """
                         }
 
-                        echo "Previous Kubernetes image captured successfully:"
-                        echo "${env.PREVIOUS_IMAGE}"
+                        echo "Previous Kubernetes image captured successfully."
                     }
                 }
             }
         }
 
-  /*      stage('Deploy Container') {
-            steps {
-                sh """
-                    docker stop employee-service || true
-                    docker rm -f employee-service || true
-
-                    docker run -d \
-                    --name employee-service \
-                    --restart unless-stopped \
-                    --network employee-service_default \
-                    -p 8081:8081 \
-                    -e SPRING_DATASOURCE_URL=jdbc:mysql://employee-mysql:3306/employee_db \
-                    -e SPRING_DATASOURCE_USERNAME=root \
-                    -e SPRING_DATASOURCE_PASSWORD=root \
-                    ${IMAGE_NAME}:${env.BUILD_NUMBER}
-                """
-            }
-        }  */
 
 // added new Deploy Container stage to skip tag latest instead will use build number tag for deployment to 
 // avoid issues with latest tag caching in docker and also to maintain versioning of docker images for better 
@@ -533,54 +501,6 @@ pipeline {
                 }
             }
         }    */
-/* --- commented as adding k8s deployment stage 
-        stage('Deploy Container') {
-
-            steps {
-
-                script {
-
-                    // Capture currently running version
-                    env.PREVIOUS_IMAGE = sh(
-                        script: """
-                            docker inspect -f '{{.Config.Image}}' ${CONTAINER_NAME} 2>/dev/null || true
-                        """,
-                        returnStdout: true
-                    ).trim()
-
-                    echo "Previous running image: ${env.PREVIOUS_IMAGE}"
-
-                    // Mark that deployment has started
-                    env.DEPLOYMENT_STARTED = "true"
-
-                    // Deploy current immutable build
-                    dir("${COMPOSE_DIR}") {
-
-                        withEnv([
-                            "IMAGE_TAG=${env.BUILD_NUMBER}"
-                        ]) {
-
-                            sh '''
-                                echo "=========================================="
-                                echo "Deploying Employee Service"
-                                echo "=========================================="
-
-                                echo "Previous Image : ${PREVIOUS_IMAGE}"
-                                echo "New Image      : ${IMAGE_NAME}:${IMAGE_TAG}"
-
-                                docker compose down || true
-
-                                docker compose pull
-
-                                docker compose up -d
-
-                                echo "Deployment command completed."
-                            '''
-                        }
-                    }
-                }
-            }
-        }   -- commented as adding k8s deployment stage  */
 
         stage('Deploy to Kubernetes') {
 
