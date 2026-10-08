@@ -43,16 +43,6 @@ pipeline {
         IMAGE_TAG  = "${BUILD_NUMBER}"
     }
 
-
-
- /*   environment {
-        APP_NAME   = "employee-service"
-        IMAGE_NAME = "arindamtiwari/employee-service"
-       // IMAGE_TAG  = "${BUILD_NUMBER}"
-        APP_PORT   = "8081"
-        SONARQUBE_SERVER = "SonarQube"
-    } */
-
     stages {
 
         stage('Checkout') {
@@ -480,40 +470,56 @@ pipeline {
                         echo "Container : ${K8S_CONTAINER}"
                         echo "New Image : ${IMAGE_NAME}:${BUILD_NUMBER}"
 
-                        // Always start this stage assuming deployment has NOT started
-                        env.DEPLOYMENT_STARTED = "false"
+                        // Default state
+                        env.DEPLOYMENT_STARTED = 'false'
 
-                        sh """
-                            set -e
+                        try {
 
-                            kubectl set image \
-                                deployment/${K8S_DEPLOYMENT} \
-                                ${K8S_CONTAINER}=${IMAGE_NAME}:${BUILD_NUMBER} \
-                                -n ${K8S_NAMESPACE}
+                            sh """
+                                set -e
+
+                                kubectl set image \
+                                    deployment/${K8S_DEPLOYMENT} \
+                                    ${K8S_CONTAINER}=${IMAGE_NAME}:${BUILD_NUMBER} \
+                                    -n ${K8S_NAMESPACE}
+
+                                echo ""
+                                echo "Deployment image updated successfully."
+
+                                echo ""
+                                echo "New Kubernetes Image:"
+
+                                kubectl get deployment ${K8S_DEPLOYMENT} \
+                                    -n ${K8S_NAMESPACE} \
+                                    -o jsonpath='{.spec.template.spec.containers[0].image}'
+
+                                echo ""
+                            """
+
+                            // IMPORTANT:
+                            // This is reached ONLY if kubectl set image succeeded.
+                            env.DEPLOYMENT_STARTED = 'true'
 
                             echo ""
-                            echo "Deployment image updated successfully."
+                            echo "=========================================="
+                            echo "DEPLOYMENT STATE"
+                            echo "=========================================="
+                            echo "DEPLOYMENT_STARTED = ${env.DEPLOYMENT_STARTED}"
+                            echo "=========================================="
+
+                        } catch (err) {
+
+                            env.DEPLOYMENT_STARTED = 'false'
 
                             echo ""
-                            echo "New Kubernetes Image:"
+                            echo "=========================================="
+                            echo "DEPLOYMENT IMAGE UPDATE FAILED"
+                            echo "=========================================="
+                            echo "DEPLOYMENT_STARTED = ${env.DEPLOYMENT_STARTED}"
+                            echo "=========================================="
 
-                            kubectl get deployment ${K8S_DEPLOYMENT} \
-                                -n ${K8S_NAMESPACE} \
-                                -o jsonpath='{.spec.template.spec.containers[0].image}'
-
-                            echo ""
-                        """
-
-                        // IMPORTANT:
-                        // kubectl set image completed successfully,
-                        // therefore a deployment rollout has started.
-                        env.DEPLOYMENT_STARTED = "true"
-
-                        echo "=========================================="
-                        echo "DEPLOYMENT STATE"
-                        echo "=========================================="
-                        echo "DEPLOYMENT_STARTED = ${env.DEPLOYMENT_STARTED}"
-                        echo "=========================================="
+                            throw err
+                        }
                     }
                 }
             }
@@ -597,50 +603,6 @@ pipeline {
                 }
             }
         }
-/* -- commented as adding new health check stage for k8s deployment
-        stage('Health Check') {
-            steps {
-                sh '''
-                    echo "========================================"
-                    echo "Starting Health Check..."
-                    echo "========================================"
-
-                    MAX_RETRIES=12
-                    RETRY_INTERVAL=5
-                    COUNT=1
-
-                    while [ $COUNT -le $MAX_RETRIES ]
-                    do
-                        echo ""
-                        echo "Attempt $COUNT of $MAX_RETRIES"
-
-                        if docker exec ${CONTAINER_NAME} \
-                            wget -q --spider http://localhost:${APP_PORT}${HEALTH_ENDPOINT}
-                        then
-                            echo ""
-                            echo "Application is Healthy"
-                            docker exec ${CONTAINER_NAME} \
-                                wget -qO- http://localhost:${APP_PORT}${HEALTH_ENDPOINT}
-                            exit 0
-                        fi
-
-                        echo "Application not ready..."
-                        sleep $RETRY_INTERVAL
-
-                        COUNT=$((COUNT+1))
-                    done
-
-                    echo ""
-                    echo "Health Check Failed"
-
-                    echo ""
-                    echo "========= Container Logs ========="
-                    docker logs ${CONTAINER_NAME}
-
-                    exit 1
-                '''
-            }
-        } -- commented as adding new health check stage for k8s deployment */
 
         stage('Application Health Check') {
 
