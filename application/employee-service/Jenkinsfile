@@ -470,56 +470,37 @@ pipeline {
                         echo "Container : ${K8S_CONTAINER}"
                         echo "New Image : ${IMAGE_NAME}:${BUILD_NUMBER}"
 
-                        // Default state
-                        env.DEPLOYMENT_STARTED = 'false'
+                        sh """
+                            set -e
 
-                        try {
+                            echo "Updating Kubernetes Deployment image..."
 
-                            sh """
-                                set -e
-
-                                kubectl set image \
-                                    deployment/${K8S_DEPLOYMENT} \
-                                    ${K8S_CONTAINER}=${IMAGE_NAME}:${BUILD_NUMBER} \
-                                    -n ${K8S_NAMESPACE}
-
-                                echo ""
-                                echo "Deployment image updated successfully."
-
-                                echo ""
-                                echo "New Kubernetes Image:"
-
-                                kubectl get deployment ${K8S_DEPLOYMENT} \
-                                    -n ${K8S_NAMESPACE} \
-                                    -o jsonpath='{.spec.template.spec.containers[0].image}'
-
-                                echo ""
-                            """
-
-                            // IMPORTANT:
-                            // This is reached ONLY if kubectl set image succeeded.
-                            env.DEPLOYMENT_STARTED = 'true'
+                            kubectl set image \
+                                deployment/${K8S_DEPLOYMENT} \
+                                ${K8S_CONTAINER}=${IMAGE_NAME}:${BUILD_NUMBER} \
+                                -n ${K8S_NAMESPACE}
 
                             echo ""
-                            echo "=========================================="
-                            echo "DEPLOYMENT STATE"
-                            echo "=========================================="
-                            echo "DEPLOYMENT_STARTED = ${env.DEPLOYMENT_STARTED}"
-                            echo "=========================================="
+                            echo "Deployment image updated successfully."
 
-                        } catch (err) {
-
-                            env.DEPLOYMENT_STARTED = 'false'
+                            # Record the CI/CD build and Git commit on the Deployment.
+                            # This annotation is metadata only and does not trigger a new rollout.
+                            kubectl annotate deployment ${K8S_DEPLOYMENT} \
+                                -n ${K8S_NAMESPACE} \
+                                kubernetes.io/change-cause="Jenkins Build #${BUILD_NUMBER} - ${IMAGE_NAME}:${BUILD_NUMBER} - Commit ${GIT_COMMIT_SHORT}" \
+                                ci.jenkins.io/deployment-build="${BUILD_NUMBER}" \
+                                ci.jenkins.io/git-commit="${GIT_COMMIT_SHORT}" \
+                                --overwrite
 
                             echo ""
-                            echo "=========================================="
-                            echo "DEPLOYMENT IMAGE UPDATE FAILED"
-                            echo "=========================================="
-                            echo "DEPLOYMENT_STARTED = ${env.DEPLOYMENT_STARTED}"
-                            echo "=========================================="
+                            echo "New Kubernetes Image:"
 
-                            throw err
-                        }
+                            kubectl get deployment ${K8S_DEPLOYMENT} \
+                                -n ${K8S_NAMESPACE} \
+                                -o jsonpath='{.spec.template.spec.containers[0].image}'
+
+                            echo ""
+                        """
                     }
                 }
             }
@@ -913,7 +894,6 @@ pipeline {
         }
 
         failure {
-
             script {
 
                 echo "=========================================="
@@ -927,18 +907,23 @@ pipeline {
                     )
                 ]) {
 
-                    sh '''
+                    // IMPORTANT:
+                    // Use double-quoted Groovy strings here so Jenkins expands
+                    // IMAGE_NAME / BUILD_NUMBER / Kubernetes variables before
+                    // the shell runs. Do not escape shell command substitutions
+                    // such as $(kubectl ...).
+                    sh """
                         set +e
 
                         TARGET_IMAGE="${IMAGE_NAME}:${BUILD_NUMBER}"
 
-                        CURRENT_IMAGE=\\$(kubectl get deployment ${K8S_DEPLOYMENT} \
+                        CURRENT_IMAGE=\$(kubectl get deployment ${K8S_DEPLOYMENT} \
                             -n ${K8S_NAMESPACE} \
                             -o jsonpath='{.spec.template.spec.containers[0].image}')
 
                         echo ""
-                        echo "Target Image  : \\$TARGET_IMAGE"
-                        echo "Current Image : \\$CURRENT_IMAGE"
+                        echo "Target Image  : \$TARGET_IMAGE"
+                        echo "Current Image : \$CURRENT_IMAGE"
 
                         echo ""
                         echo "=========================================="
@@ -963,26 +948,34 @@ pipeline {
 
                         echo ""
 
-                        if [ "\\$CURRENT_IMAGE" = "\\$TARGET_IMAGE" ]; then
+                        if [ "\$CURRENT_IMAGE" = "\$TARGET_IMAGE" ]; then
 
                             echo "=========================================="
                             echo "ROLLBACK REQUIRED"
                             echo "=========================================="
+                            echo "Deployment is still pointing to the failed build."
 
-                            echo "Deployment was updated to the failed build."
-                            echo "Starting automatic Kubernetes rollback..."
-
+                            echo ""
+                            echo "Deployment history BEFORE rollback:"
                             kubectl rollout history \
                                 deployment/${K8S_DEPLOYMENT} \
                                 -n ${K8S_NAMESPACE}
 
                             echo ""
-                            echo "Executing rollback..."
+                            echo "Executing Kubernetes rollback..."
 
                             kubectl rollout undo \
                                 deployment/${K8S_DEPLOYMENT} \
                                 -n ${K8S_NAMESPACE}
 
+                            UNDO_STATUS=\$?
+
+                            if [ "\$UNDO_STATUS" -ne 0 ]; then
+                                echo "Rollback command failed."
+                                exit 1
+                            fi
+
+                            echo "Rollback command completed."
                             echo ""
                             echo "Waiting for rollback to complete..."
 
@@ -991,44 +984,39 @@ pipeline {
                                 -n ${K8S_NAMESPACE} \
                                 --timeout=${K8S_ROLLOUT_TIMEOUT}
 
-                            ROLLBACK_STATUS=\\$?
+                            ROLLBACK_STATUS=\$?
 
                             echo ""
-                            echo "Rollback status: \\$ROLLBACK_STATUS"
+                            echo "Rollback status: \$ROLLBACK_STATUS"
 
                             echo ""
                             echo "=========================================="
                             echo "POST-ROLLBACK VERIFICATION"
                             echo "=========================================="
 
-                            kubectl get deployment \
-                                ${K8S_DEPLOYMENT} \
+                            ROLLBACK_IMAGE=\$(kubectl get deployment ${K8S_DEPLOYMENT} \
+                                -n ${K8S_NAMESPACE} \
+                                -o jsonpath='{.spec.template.spec.containers[0].image}')
+
+                            echo "Image after rollback: \$ROLLBACK_IMAGE"
+
+                            kubectl get deployment ${K8S_DEPLOYMENT} \
                                 -n ${K8S_NAMESPACE}
 
                             echo ""
-                            echo "Current image after rollback:"
-
-                            kubectl get deployment ${K8S_DEPLOYMENT} \
-                                -n ${K8S_NAMESPACE} \
-                                -o jsonpath='{.spec.template.spec.containers[0].image}'
-
-                            echo ""
-
-                            echo ""
                             echo "Pods after rollback:"
-
                             kubectl get pods \
                                 -n ${K8S_NAMESPACE} \
                                 -l app=${APP_NAME} \
                                 -o wide
 
-                            if [ "\\$ROLLBACK_STATUS" -ne 0 ]; then
-
-                                echo ""
-                                echo "=========================================="
+                            if [ "\$ROLLBACK_STATUS" -ne 0 ]; then
                                 echo "ROLLBACK FAILED"
-                                echo "=========================================="
+                                exit 1
+                            fi
 
+                            if [ "\$ROLLBACK_IMAGE" = "\$TARGET_IMAGE" ]; then
+                                echo "ERROR: Rollback did not change the Deployment image."
                                 exit 1
                             fi
 
@@ -1036,18 +1024,17 @@ pipeline {
                             echo "=========================================="
                             echo "AUTOMATIC ROLLBACK SUCCESSFUL"
                             echo "=========================================="
+                            echo "Recovered image: \$ROLLBACK_IMAGE"
 
                         else
 
                             echo "=========================================="
                             echo "NO ROLLBACK REQUIRED"
                             echo "=========================================="
-
-                            echo "The Deployment image is not the current build."
-                            echo "Failure occurred before Kubernetes image update."
+                            echo "Failure occurred before this build changed the Deployment image."
 
                         fi
-                    ''' 
+                    """
                 }
             }
         }
