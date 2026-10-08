@@ -894,6 +894,7 @@ pipeline {
         }
 
         failure {
+
             script {
 
                 echo "=========================================="
@@ -907,19 +908,18 @@ pipeline {
                     )
                 ]) {
 
-                    // IMPORTANT:
-                    // Use double-quoted Groovy strings here so Jenkins expands
-                    // IMAGE_NAME / BUILD_NUMBER / Kubernetes variables before
-                    // the shell runs. Do not escape shell command substitutions
-                    // such as $(kubectl ...).
                     sh """
                         set +e
+
+                        REPORT_DIR="reports/k8s-deployment-failure"
+
+                        mkdir -p "\$REPORT_DIR"
 
                         TARGET_IMAGE="${IMAGE_NAME}:${BUILD_NUMBER}"
 
                         CURRENT_IMAGE=\$(kubectl get deployment ${K8S_DEPLOYMENT} \
                             -n ${K8S_NAMESPACE} \
-                            -o jsonpath='{.spec.template.spec.containers[0].image}')
+                            -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null)
 
                         echo ""
                         echo "Target Image  : \$TARGET_IMAGE"
@@ -927,42 +927,352 @@ pipeline {
 
                         echo ""
                         echo "=========================================="
-                        echo "KUBERNETES STATE AT FAILURE"
+                        echo "CAPTURING KUBERNETES FAILURE EVIDENCE"
                         echo "=========================================="
 
-                        kubectl get deployment ${K8S_DEPLOYMENT} \
-                            -n ${K8S_NAMESPACE}
+                        # -------------------------------------------------
+                        # 1. Deployment state
+                        # -------------------------------------------------
 
-                        echo ""
-                        echo "Pods:"
+                        echo "Capturing Deployment state..."
+
+                        kubectl get deployment ${K8S_DEPLOYMENT} \
+                            -n ${K8S_NAMESPACE} \
+                            -o wide \
+                            > "\$REPORT_DIR/deployment-status.txt" 2>&1
+
+                        kubectl get deployment ${K8S_DEPLOYMENT} \
+                            -n ${K8S_NAMESPACE} \
+                            -o yaml \
+                            > "\$REPORT_DIR/deployment.yaml" 2>&1
+
+                        # -------------------------------------------------
+                        # 2. Deployment conditions
+                        # -------------------------------------------------
+
+                        echo "Capturing Deployment conditions..."
+
+                        kubectl get deployment ${K8S_DEPLOYMENT} \
+                            -n ${K8S_NAMESPACE} \
+                            -o jsonpath='{range .status.conditions[*]}{.type}={.status} reason={.reason} message={.message}{"\\n"}{end}' \
+                            > "\$REPORT_DIR/deployment-conditions.txt" 2>&1
+
+                        # -------------------------------------------------
+                        # 3. Pods
+                        # -------------------------------------------------
+
+                        echo "Capturing Pod state..."
+
                         kubectl get pods \
                             -n ${K8S_NAMESPACE} \
                             -l app=${APP_NAME} \
-                            -o wide
+                            -o wide \
+                            > "\$REPORT_DIR/pods.txt" 2>&1
 
-                        echo ""
-                        echo "Recent events:"
+                        # -------------------------------------------------
+                        # 4. ReplicaSets
+                        # -------------------------------------------------
+
+                        echo "Capturing ReplicaSet state..."
+
+                        kubectl get rs \
+                            -n ${K8S_NAMESPACE} \
+                            -l app=${APP_NAME} \
+                            -o wide \
+                            > "\$REPORT_DIR/replicasets.txt" 2>&1
+
+                        # -------------------------------------------------
+                        # 5. Kubernetes Events
+                        # -------------------------------------------------
+
+                        echo "Capturing Kubernetes events..."
+
                         kubectl get events \
                             -n ${K8S_NAMESPACE} \
-                            --sort-by=.lastTimestamp | tail -n 25
+                            --sort-by=.lastTimestamp \
+                            > "\$REPORT_DIR/events.txt" 2>&1
+
+                        # -------------------------------------------------
+                        # 6. Pod describe information
+                        # -------------------------------------------------
+
+                        echo "Capturing Pod diagnostic information..."
+
+                        : > "\$REPORT_DIR/pod-describe.txt"
+
+                        for POD in \$(kubectl get pods \
+                            -n ${K8S_NAMESPACE} \
+                            -l app=${APP_NAME} \
+                            -o jsonpath='{range .items[*]}{.metadata.name}{"\\n"}{end}' 2>/dev/null)
+                        do
+
+                            echo "==================================================" \
+                                >> "\$REPORT_DIR/pod-describe.txt"
+
+                            echo "POD: \$POD" \
+                                >> "\$REPORT_DIR/pod-describe.txt"
+
+                            echo "==================================================" \
+                                >> "\$REPORT_DIR/pod-describe.txt"
+
+                            kubectl describe pod "\$POD" \
+                                -n ${K8S_NAMESPACE} \
+                                >> "\$REPORT_DIR/pod-describe.txt" 2>&1
+
+                            echo "" >> "\$REPORT_DIR/pod-describe.txt"
+
+                        done
+
+                        # -------------------------------------------------
+                        # 7. Container state
+                        # -------------------------------------------------
+
+                        echo "Capturing container states..."
+
+                        : > "\$REPORT_DIR/container-state.txt"
+
+                        for POD in \$(kubectl get pods \
+                            -n ${K8S_NAMESPACE} \
+                            -l app=${APP_NAME} \
+                            -o jsonpath='{range .items[*]}{.metadata.name}{"\\n"}{end}' 2>/dev/null)
+                        do
+
+                            echo "==================================================" \
+                                >> "\$REPORT_DIR/container-state.txt"
+
+                            echo "POD: \$POD" \
+                                >> "\$REPORT_DIR/container-state.txt"
+
+                            echo "==================================================" \
+                                >> "\$REPORT_DIR/container-state.txt"
+
+                            kubectl get pod "\$POD" \
+                                -n ${K8S_NAMESPACE} \
+                                -o jsonpath='{range .status.containerStatuses[*]}container={.name} ready={.ready} restartCount={.restartCount} state={.state}{"\\n"}{end}' \
+                                >> "\$REPORT_DIR/container-state.txt" 2>&1
+
+                            echo "" >> "\$REPORT_DIR/container-state.txt"
+
+                        done
+
+                        # -------------------------------------------------
+                        # 8. Application logs
+                        # -------------------------------------------------
+
+                        echo "Capturing application logs..."
+
+                        : > "\$REPORT_DIR/pod-logs.txt"
+
+                        for POD in \$(kubectl get pods \
+                            -n ${K8S_NAMESPACE} \
+                            -l app=${APP_NAME} \
+                            -o jsonpath='{range .items[*]}{.metadata.name}{"\\n"}{end}' 2>/dev/null)
+                        do
+
+                            echo "==================================================" \
+                                >> "\$REPORT_DIR/pod-logs.txt"
+
+                            echo "POD: \$POD" \
+                                >> "\$REPORT_DIR/pod-logs.txt"
+
+                            echo "==================================================" \
+                                >> "\$REPORT_DIR/pod-logs.txt"
+
+                            kubectl logs "\$POD" \
+                                -n ${K8S_NAMESPACE} \
+                                --all-containers=true \
+                                --tail=200 \
+                                >> "\$REPORT_DIR/pod-logs.txt" 2>&1
+
+                            echo "" >> "\$REPORT_DIR/pod-logs.txt"
+
+                            echo "--------------- PREVIOUS CONTAINER LOGS ---------------" \
+                                >> "\$REPORT_DIR/pod-logs.txt"
+
+                            kubectl logs "\$POD" \
+                                -n ${K8S_NAMESPACE} \
+                                --all-containers=true \
+                                --previous \
+                                --tail=200 \
+                                >> "\$REPORT_DIR/pod-logs.txt" 2>&1
+
+                            echo "" >> "\$REPORT_DIR/pod-logs.txt"
+
+                        done
+
+                        # -------------------------------------------------
+                        # 9. Generate human-readable report
+                        # -------------------------------------------------
+
+                        echo "Generating failure report..."
+
+                        {
+                            echo "============================================================"
+                            echo "KUBERNETES DEPLOYMENT FAILURE REPORT"
+                            echo "============================================================"
+                            echo ""
+
+                            echo "Application       : ${APP_NAME}"
+                            echo "Namespace         : ${K8S_NAMESPACE}"
+                            echo "Deployment        : ${K8S_DEPLOYMENT}"
+                            echo "Container         : ${K8S_CONTAINER}"
+                            echo "Jenkins Job       : ${JOB_NAME}"
+                            echo "Jenkins Build     : ${BUILD_NUMBER}"
+                            echo "Build URL         : ${BUILD_URL}"
+                            echo "Git Commit        : ${GIT_COMMIT_SHORT}"
+                            echo "Target Image      : \$TARGET_IMAGE"
+                            echo "Current Image     : \$CURRENT_IMAGE"
+                            echo ""
+
+                            echo "============================================================"
+                            echo "DEPLOYMENT STATUS"
+                            echo "============================================================"
+
+                            cat "\$REPORT_DIR/deployment-status.txt"
+
+                            echo ""
+                            echo "============================================================"
+                            echo "DEPLOYMENT CONDITIONS"
+                            echo "============================================================"
+
+                            cat "\$REPORT_DIR/deployment-conditions.txt"
+
+                            echo ""
+                            echo "============================================================"
+                            echo "PODS"
+                            echo "============================================================"
+
+                            cat "\$REPORT_DIR/pods.txt"
+
+                            echo ""
+                            echo "============================================================"
+                            echo "CONTAINER STATE"
+                            echo "============================================================"
+
+                            cat "\$REPORT_DIR/container-state.txt"
+
+                            echo ""
+                            echo "============================================================"
+                            echo "REPLICASETS"
+                            echo "============================================================"
+
+                            cat "\$REPORT_DIR/replicasets.txt"
+
+                            echo ""
+                            echo "============================================================"
+                            echo "RECENT KUBERNETES EVENTS"
+                            echo "============================================================"
+
+                            tail -n 100 "\$REPORT_DIR/events.txt"
+
+                            echo ""
+                            echo "============================================================"
+                            echo "DIAGNOSTIC EVIDENCE"
+                            echo "============================================================"
+
+                            echo "Detailed Pod information:"
+                            echo "See pod-describe.txt"
+
+                            echo ""
+                            echo "Application logs:"
+                            echo "See pod-logs.txt"
+
+                            echo ""
+                            echo "============================================================"
+                            echo "INITIAL DIAGNOSIS"
+                            echo "============================================================"
+
+                            echo "Failure classification: UNCLASSIFIED"
+                            echo ""
+                            echo "This report contains the Kubernetes evidence captured"
+                            echo "immediately before automatic rollback."
+                            echo ""
+                            echo "Failure classification will be added in the"
+                            echo "Failure Classifier phase."
+
+                            echo ""
+                            echo "============================================================"
+
+                        } > "\$REPORT_DIR/k8s-deployment-failure-report.txt"
+
+                        # -------------------------------------------------
+                        # 10. Generate machine-readable JSON
+                        # -------------------------------------------------
+
+                        echo "Generating JSON report..."
+
+                        if command -v jq >/dev/null 2>&1; then
+
+                            jq -n \
+                                --arg application "${APP_NAME}" \
+                                --arg namespace "${K8S_NAMESPACE}" \
+                                --arg deployment "${K8S_DEPLOYMENT}" \
+                                --arg container "${K8S_CONTAINER}" \
+                                --arg build "${BUILD_NUMBER}" \
+                                --arg job "${JOB_NAME}" \
+                                --arg buildUrl "${BUILD_URL}" \
+                                --arg commit "${GIT_COMMIT_SHORT}" \
+                                --arg targetImage "\$TARGET_IMAGE" \
+                                --arg currentImage "\$CURRENT_IMAGE" \
+                                --arg failureCategory "UNCLASSIFIED" \
+                                '{
+                                    application: \$application,
+                                    namespace: \$namespace,
+                                    deployment: \$deployment,
+                                    container: \$container,
+                                    jenkinsJob: \$job,
+                                    jenkinsBuild: \$build,
+                                    buildUrl: \$buildUrl,
+                                    gitCommit: \$commit,
+                                    targetImage: \$targetImage,
+                                    currentImage: \$currentImage,
+                                    failureCategory: \$failureCategory,
+                                    rollback: {
+                                        status: "PENDING"
+                                    }
+                                }' \
+                                > "\$REPORT_DIR/k8s-deployment-failure-report.json"
+
+                        else
+
+                            echo "WARNING: jq not available. JSON report not generated."
+
+                        fi
 
                         echo ""
+                        echo "=========================================="
+                        echo "FAILURE EVIDENCE CAPTURE COMPLETED"
+                        echo "=========================================="
+
+                        echo ""
+                        echo "Diagnostic report directory:"
+                        echo "\$REPORT_DIR"
+
+                        echo ""
+                        echo "Files:"
+                        ls -lh "\$REPORT_DIR"
+
+                        # -------------------------------------------------
+                        # IMPORTANT:
+                        # Failure evidence has now been captured.
+                        # Only now do we perform rollback.
+                        # -------------------------------------------------
 
                         if [ "\$CURRENT_IMAGE" = "\$TARGET_IMAGE" ]; then
 
+                            echo ""
                             echo "=========================================="
                             echo "ROLLBACK REQUIRED"
                             echo "=========================================="
+
                             echo "Deployment is still pointing to the failed build."
 
                             echo ""
-                            echo "Deployment history BEFORE rollback:"
+                            echo "Executing Kubernetes rollback..."
+
                             kubectl rollout history \
                                 deployment/${K8S_DEPLOYMENT} \
                                 -n ${K8S_NAMESPACE}
-
-                            echo ""
-                            echo "Executing Kubernetes rollback..."
 
                             kubectl rollout undo \
                                 deployment/${K8S_DEPLOYMENT} \
@@ -971,11 +1281,15 @@ pipeline {
                             UNDO_STATUS=\$?
 
                             if [ "\$UNDO_STATUS" -ne 0 ]; then
+
                                 echo "Rollback command failed."
+
                                 exit 1
+
                             fi
 
                             echo "Rollback command completed."
+
                             echo ""
                             echo "Waiting for rollback to complete..."
 
@@ -989,52 +1303,108 @@ pipeline {
                             echo ""
                             echo "Rollback status: \$ROLLBACK_STATUS"
 
+                            ROLLBACK_IMAGE=\$(kubectl get deployment ${K8S_DEPLOYMENT} \
+                                -n ${K8S_NAMESPACE} \
+                                -o jsonpath='{.spec.template.spec.containers[0].image}')
+
                             echo ""
                             echo "=========================================="
                             echo "POST-ROLLBACK VERIFICATION"
                             echo "=========================================="
 
-                            ROLLBACK_IMAGE=\$(kubectl get deployment ${K8S_DEPLOYMENT} \
-                                -n ${K8S_NAMESPACE} \
-                                -o jsonpath='{.spec.template.spec.containers[0].image}')
-
-                            echo "Image after rollback: \$ROLLBACK_IMAGE"
+                            echo "Recovered image: \$ROLLBACK_IMAGE"
 
                             kubectl get deployment ${K8S_DEPLOYMENT} \
                                 -n ${K8S_NAMESPACE}
 
                             echo ""
                             echo "Pods after rollback:"
+
                             kubectl get pods \
                                 -n ${K8S_NAMESPACE} \
                                 -l app=${APP_NAME} \
                                 -o wide
 
+                            # Update JSON report with rollback result.
+                            if command -v jq >/dev/null 2>&1; then
+
+                                if [ "\$ROLLBACK_STATUS" -eq 0 ]; then
+
+                                    jq \
+                                        --arg status "SUCCESSFUL" \
+                                        --arg image "\$ROLLBACK_IMAGE" \
+                                        '.rollback.status = \$status |
+                                        .rollback.recoveredImage = \$image' \
+                                        "\$REPORT_DIR/k8s-deployment-failure-report.json" \
+                                        > "\$REPORT_DIR/report.tmp"
+
+                                    mv "\$REPORT_DIR/report.tmp" \
+                                    "\$REPORT_DIR/k8s-deployment-failure-report.json"
+
+                                else
+
+                                    jq \
+                                        --arg status "FAILED" \
+                                        '.rollback.status = \$status' \
+                                        "\$REPORT_DIR/k8s-deployment-failure-report.json" \
+                                        > "\$REPORT_DIR/report.tmp"
+
+                                    mv "\$REPORT_DIR/report.tmp" \
+                                    "\$REPORT_DIR/k8s-deployment-failure-report.json"
+
+                                fi
+
+                            fi
+
                             if [ "\$ROLLBACK_STATUS" -ne 0 ]; then
+
+                                echo ""
+                                echo "=========================================="
                                 echo "ROLLBACK FAILED"
+                                echo "=========================================="
+
                                 exit 1
+
                             fi
 
                             if [ "\$ROLLBACK_IMAGE" = "\$TARGET_IMAGE" ]; then
+
                                 echo "ERROR: Rollback did not change the Deployment image."
+
                                 exit 1
+
                             fi
 
                             echo ""
                             echo "=========================================="
                             echo "AUTOMATIC ROLLBACK SUCCESSFUL"
                             echo "=========================================="
+
                             echo "Recovered image: \$ROLLBACK_IMAGE"
 
                         else
 
+                            echo ""
                             echo "=========================================="
                             echo "NO ROLLBACK REQUIRED"
                             echo "=========================================="
+
                             echo "Failure occurred before this build changed the Deployment image."
 
                         fi
                     """
+                    // Archive the evidence even though this Jenkins build is FAILED.
+                    archiveArtifacts artifacts: 'reports/k8s-deployment-failure/**',
+                                    allowEmptyArchive: true,
+                                    fingerprint: true
+
+                    echo ""
+                    echo "=========================================="
+                    echo "KUBERNETES FAILURE REPORT ARCHIVED"
+                    echo "=========================================="
+                    echo "Jenkins build remains FAILED by design."
+                    echo "Rollback recovery does not make the deployment build successful."
+                    echo "=========================================="
                 }
             }
         }
