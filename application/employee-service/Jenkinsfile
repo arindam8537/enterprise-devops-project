@@ -41,6 +41,8 @@ pipeline {
      //   DEPLOYMENT_STARTED = "false"
      //   PREVIOUS_IMAGE = ""
         IMAGE_TAG  = "${BUILD_NUMBER}"
+        // Docker cleanup is disabled for now; set to "true" when ready to purge old Jenkins/DinD images.
+        DOCKER_CLEANUP_ENABLED = "false"
     }
 
     stages {
@@ -672,6 +674,11 @@ pipeline {
                 }
             }
         }
+
+        // Docker cleanup is intentionally controlled from post { cleanup { ... } } below.
+        // This ensures cleanup can run after both successful and failed builds.
+        // Set DOCKER_CLEANUP_ENABLED="true" when you are ready to enable it.
+
 /* -- commented as adding new smoke test stage for k8s deployment
         stage('Smoke Test') {
             steps {
@@ -1252,6 +1259,173 @@ pipeline {
                         echo "Files:"
                         ls -lh "\$REPORT_DIR"
 
+                        echo ""
+                        echo "=========================================="
+                        echo "FAILURE CLASSIFICATION"
+                        echo "=========================================="
+
+                        # Phase 2 purpose:
+                        # Convert captured Kubernetes evidence into an initial
+                        # failure category, confidence level, and reason.
+                        #
+                        # This is NOT a guaranteed RCA. It is an automated
+                        # first classification to help the support/SRE team
+                        # start investigation immediately.
+
+                        FAILURE_CATEGORY="UNKNOWN_ROLLOUT_FAILURE"
+                        CLASSIFICATION_CONFIDENCE="LOW"
+                        CLASSIFICATION_REASON="No specific failure signature detected."
+
+                        EVENTS_FILE="\${REPORT_DIR}/events.txt"
+                        PODS_FILE="\${REPORT_DIR}/pods.txt"
+                        CONTAINER_STATE_FILE="\${REPORT_DIR}/container-state.txt"
+                        POD_LOGS_FILE="\${REPORT_DIR}/pod-logs.txt"
+                        DEPLOYMENT_STATUS_FILE="\${REPORT_DIR}/deployment-status.txt"
+                        DEPLOYMENT_CONDITIONS_FILE="\${REPORT_DIR}/deployment-conditions.txt"
+
+                        # IMPORTANT:
+                        # Check specific signatures before generic timeout/error
+                        # patterns. This prevents a sandbox/image/probe failure
+                        # from being incorrectly classified as only a timeout.
+
+                        if grep -qi "FailedCreatePodSandBox" "\${EVENTS_FILE}"; then
+
+                            FAILURE_CATEGORY="SANDBOX_INFRASTRUCTURE_FAILURE"
+                            CLASSIFICATION_CONFIDENCE="HIGH"
+                            CLASSIFICATION_REASON="Kubernetes reported FailedCreatePodSandBox while creating the Pod sandbox."
+
+                        elif grep -qiE "ImagePullBackOff|ErrImagePull|pull access denied|manifest unknown|image.*not found" "\${EVENTS_FILE}"; then
+
+                            FAILURE_CATEGORY="IMAGE_PULL_FAILURE"
+                            CLASSIFICATION_CONFIDENCE="HIGH"
+                            CLASSIFICATION_REASON="Kubernetes reported an image pull or image availability failure."
+
+                        elif grep -qiE "CreateContainerConfigError|secret.*not found|configmap.*not found|config.*error" "\${EVENTS_FILE}" "\${CONTAINER_STATE_FILE}"; then
+
+                            FAILURE_CATEGORY="CONFIGURATION_FAILURE"
+                            CLASSIFICATION_CONFIDENCE="HIGH"
+                            CLASSIFICATION_REASON="Kubernetes reported a container configuration, Secret, or ConfigMap failure."
+
+                        elif grep -qiE "Readiness probe failed|readiness probe" "\${EVENTS_FILE}"; then
+
+                            FAILURE_CATEGORY="READINESS_PROBE_FAILURE"
+                            CLASSIFICATION_CONFIDENCE="HIGH"
+                            CLASSIFICATION_REASON="Kubernetes reported a readiness probe failure."
+
+                        elif grep -qiE "Liveness probe failed|liveness probe" "\${EVENTS_FILE}"; then
+
+                            FAILURE_CATEGORY="LIVENESS_PROBE_FAILURE"
+                            CLASSIFICATION_CONFIDENCE="HIGH"
+                            CLASSIFICATION_REASON="Kubernetes reported a liveness probe failure."
+
+                        elif grep -qiE "CrashLoopBackOff|Back-off restarting failed container" "\${EVENTS_FILE}" "\${CONTAINER_STATE_FILE}"; then
+
+                            FAILURE_CATEGORY="CRASH_LOOP"
+                            CLASSIFICATION_CONFIDENCE="HIGH"
+                            CLASSIFICATION_REASON="Container restart/back-off behavior was detected."
+
+                        elif grep -qiE "FailedScheduling|Insufficient cpu|Insufficient memory|node selector|taint|toleration" "\${EVENTS_FILE}"; then
+
+                            FAILURE_CATEGORY="SCHEDULING_FAILURE"
+                            CLASSIFICATION_CONFIDENCE="HIGH"
+                            CLASSIFICATION_REASON="Kubernetes reported a scheduling or node-placement failure."
+
+                        elif grep -qiE "OOMKilled|OutOfMemory" "\${EVENTS_FILE}" "\${CONTAINER_STATE_FILE}"; then
+
+                            FAILURE_CATEGORY="RESOURCE_FAILURE"
+                            CLASSIFICATION_CONFIDENCE="HIGH"
+                            CLASSIFICATION_REASON="Container resource exhaustion such as OOMKilled/OutOfMemory was detected."
+
+                        elif grep -qiE "ProgressDeadlineExceeded|timeout|timed out" "\${EVENTS_FILE}" "\${DEPLOYMENT_STATUS_FILE}" "\${DEPLOYMENT_CONDITIONS_FILE}"; then
+
+                            FAILURE_CATEGORY="ROLLOUT_TIMEOUT"
+                            CLASSIFICATION_CONFIDENCE="MEDIUM"
+                            CLASSIFICATION_REASON="The Deployment did not make sufficient rollout progress within the expected time."
+
+                        elif grep -qiE "Exception|ERROR|Caused by:" "\${POD_LOGS_FILE}"; then
+
+                            FAILURE_CATEGORY="APPLICATION_STARTUP_FAILURE"
+                            CLASSIFICATION_CONFIDENCE="MEDIUM"
+                            CLASSIFICATION_REASON="Application/container logs contain startup error signatures."
+
+                        fi
+
+                        echo ""
+                        echo "Failure Category       : \${FAILURE_CATEGORY}"
+                        echo "Classification         : \${CLASSIFICATION_CONFIDENCE}"
+                        echo "Reason                 : \${CLASSIFICATION_REASON}"
+
+                        printf '%s\n' \
+                            "============================================================" \
+                            "KUBERNETES FAILURE CLASSIFICATION" \
+                            "============================================================" \
+                            "" \
+                            "Application       : ${APP_NAME}" \
+                            "Namespace         : ${K8S_NAMESPACE}" \
+                            "Deployment        : ${K8S_DEPLOYMENT}" \
+                            "Container         : ${K8S_CONTAINER}" \
+                            "Jenkins Build     : ${BUILD_NUMBER}" \
+                            "" \
+                            "Failure Category  : \${FAILURE_CATEGORY}" \
+                            "Confidence        : \${CLASSIFICATION_CONFIDENCE}" \
+                            "" \
+                            "Reason:" \
+                            "\${CLASSIFICATION_REASON}" \
+                            "" \
+                            "This is an initial automated diagnosis based on Kubernetes" \
+                            "evidence captured before rollback. It is not a guaranteed RCA." \
+                            "" \
+                            "============================================================" \
+                            > "\${REPORT_DIR}/classification.txt"
+
+                        # Add the Phase 2 classification to the main
+                        # human-readable report that was generated above.
+                        printf '%s\n' \
+                            "" \
+                            "============================================================" \
+                            "FAILURE CLASSIFICATION" \
+                            "============================================================" \
+                            "" \
+                            "Failure Category  : \${FAILURE_CATEGORY}" \
+                            "Confidence        : \${CLASSIFICATION_CONFIDENCE}" \
+                            "Reason            : \${CLASSIFICATION_REASON}" \
+                            "" \
+                            "Classification is an initial automated diagnosis based on" \
+                            "Kubernetes evidence captured before rollback." \
+                            "" \
+                            "============================================================" \
+                            >> "\${REPORT_DIR}/k8s-deployment-failure-report.txt"
+
+                        # Update the machine-readable JSON with the actual
+                        # classifier result generated above.
+                        if command -v jq >/dev/null 2>&1 && [ -f "\${REPORT_DIR}/k8s-deployment-failure-report.json" ]; then
+
+                            jq --arg category "\${FAILURE_CATEGORY}" \
+                               --arg confidence "\${CLASSIFICATION_CONFIDENCE}" \
+                               --arg reason "\${CLASSIFICATION_REASON}" \
+                               '.failureCategory = $category |
+                                .classificationConfidence = $confidence |
+                                .classificationReason = $reason' \
+                               "\${REPORT_DIR}/k8s-deployment-failure-report.json" \
+                               > "\${REPORT_DIR}/report.tmp"
+
+                            if [ "$?" -eq 0 ]; then
+                                mv "\${REPORT_DIR}/report.tmp" \
+                                   "\${REPORT_DIR}/k8s-deployment-failure-report.json"
+                            else
+                                echo "WARNING: Unable to update JSON report with classification."
+                                rm -f "\${REPORT_DIR}/report.tmp"
+                            fi
+
+                        else
+                            echo "WARNING: JSON report not available for classification update."
+                        fi
+
+                        echo ""
+                        echo "=========================================="
+                        echo "FAILURE CLASSIFICATION COMPLETED"
+                        echo "=========================================="
+
                         # -------------------------------------------------
                         # IMPORTANT:
                         # Failure evidence has now been captured.
@@ -1273,6 +1447,35 @@ pipeline {
                             kubectl rollout history \
                                 deployment/${K8S_DEPLOYMENT} \
                                 -n ${K8S_NAMESPACE}
+
+                            echo ""
+                            echo "=========================================="
+                            echo "ROLLBACK / RECOVERY"
+                            echo "=========================================="
+
+                            PREVIOUS_IMAGE="\${CURRENT_IMAGE}"
+
+                            printf '%s\n' \
+                                "============================================================" \
+                                "KUBERNETES ROLLBACK / RECOVERY REPORT" \
+                                "============================================================" \
+                                "" \
+                                "Application       : ${APP_NAME}" \
+                                "Namespace         : ${K8S_NAMESPACE}" \
+                                "Deployment        : ${K8S_DEPLOYMENT}" \
+                                "Jenkins Build     : ${BUILD_NUMBER}" \
+                                "" \
+                                "Failed Image:" \
+                                "\${TARGET_IMAGE}" \
+                                "" \
+                                "Image Before Rollback:" \
+                                "\${PREVIOUS_IMAGE}" \
+                                "" \
+                                "Rollback Status:" \
+                                "STARTED" \
+                                "" \
+                                "============================================================" \
+                                > "\${REPORT_DIR}/rollback-recovery.txt"
 
                             kubectl rollout undo \
                                 deployment/${K8S_DEPLOYMENT} \
@@ -1405,6 +1608,38 @@ pipeline {
                     echo "Jenkins build remains FAILED by design."
                     echo "Rollback recovery does not make the deployment build successful."
                     echo "=========================================="
+                }
+            }
+        }
+
+        cleanup {
+            script {
+                if (env.DOCKER_CLEANUP_ENABLED == 'true') {
+
+                    echo "=========================================="
+                    echo "DOCKER CLEANUP"
+                    echo "=========================================="
+
+                    sh """
+                        set +e
+
+                        echo "Docker disk usage BEFORE cleanup:"
+                        docker system df
+
+                        echo ""
+                        echo "Removing unused Docker images older than 24 hours..."
+                        docker image prune -af --filter "until=24h"
+
+                        echo ""
+                        echo "Docker disk usage AFTER cleanup:"
+                        docker system df
+
+                        echo ""
+                        echo "Docker cleanup completed."
+                    """
+
+                } else {
+                    echo "Docker cleanup is disabled. Set DOCKER_CLEANUP_ENABLED=true to enable it."
                 }
             }
         }
