@@ -1403,13 +1403,13 @@ pipeline {
                             jq --arg category "\${FAILURE_CATEGORY}" \
                                --arg confidence "\${CLASSIFICATION_CONFIDENCE}" \
                                --arg reason "\${CLASSIFICATION_REASON}" \
-                               '.failureCategory = $category |
-                                .classificationConfidence = $confidence |
-                                .classificationReason = $reason' \
+                               '.failureCategory = \$category |
+                                .classificationConfidence = \$confidence |
+                                .classificationReason = \$reason' \
                                "\${REPORT_DIR}/k8s-deployment-failure-report.json" \
                                > "\${REPORT_DIR}/report.tmp"
 
-                            if [ "$?" -eq 0 ]; then
+                            if [ "\$?" -eq 0 ]; then
                                 mv "\${REPORT_DIR}/report.tmp" \
                                    "\${REPORT_DIR}/k8s-deployment-failure-report.json"
                             else
