@@ -38,7 +38,7 @@ pipeline {
         // NVD API Key for OWASP Dependency Check
         NVD_API_KEY = credentials('nvd-api-key')
 
-        DEPLOYMENT_STARTED = "false"
+     //   DEPLOYMENT_STARTED = "false"
      //   PREVIOUS_IMAGE = ""
         IMAGE_TAG  = "${BUILD_NUMBER}"
     }
@@ -913,59 +913,75 @@ pipeline {
         }
 
         failure {
+
             script {
 
                 echo "=========================================="
                 echo "KUBERNETES DEPLOYMENT FAILURE HANDLER"
                 echo "=========================================="
 
-                echo "DEPLOYMENT_STARTED = ${env.DEPLOYMENT_STARTED}"
+                withCredentials([
+                    file(
+                        credentialsId: 'docker-desktop-kubeconfig',
+                        variable: 'KUBECONFIG'
+                    )
+                ]) {
 
-                if (env.DEPLOYMENT_STARTED == "true") {
+                    sh """
+                        set +e
 
-                    echo "A Kubernetes deployment was started."
-                    echo "Attempting automatic rollback..."
+                        TARGET_IMAGE="${IMAGE_NAME}:${BUILD_NUMBER}"
 
-                    withCredentials([
-                        file(
-                            credentialsId: 'docker-desktop-kubeconfig',
-                            variable: 'KUBECONFIG'
-                        )
-                    ]) {
+                        CURRENT_IMAGE=\\$(kubectl get deployment ${K8S_DEPLOYMENT} \
+                            -n ${K8S_NAMESPACE} \
+                            -o jsonpath='{.spec.template.spec.containers[0].image}')
 
-                        sh """
-                            set +e
+                        echo ""
+                        echo "Target Image  : \\$TARGET_IMAGE"
+                        echo "Current Image : \\$CURRENT_IMAGE"
 
-                            echo ""
+                        echo ""
+                        echo "=========================================="
+                        echo "KUBERNETES STATE AT FAILURE"
+                        echo "=========================================="
+
+                        kubectl get deployment ${K8S_DEPLOYMENT} \
+                            -n ${K8S_NAMESPACE}
+
+                        echo ""
+                        echo "Pods:"
+                        kubectl get pods \
+                            -n ${K8S_NAMESPACE} \
+                            -l app=${APP_NAME} \
+                            -o wide
+
+                        echo ""
+                        echo "Recent events:"
+                        kubectl get events \
+                            -n ${K8S_NAMESPACE} \
+                            --sort-by=.lastTimestamp | tail -n 25
+
+                        echo ""
+
+                        if [ "\\$CURRENT_IMAGE" = "\\$TARGET_IMAGE" ]; then
+
                             echo "=========================================="
-                            echo "ROLLBACK STARTED"
+                            echo "ROLLBACK REQUIRED"
                             echo "=========================================="
 
-                            echo ""
-                            echo "Deployment history BEFORE rollback:"
+                            echo "Deployment was updated to the failed build."
+                            echo "Starting automatic Kubernetes rollback..."
 
                             kubectl rollout history \
                                 deployment/${K8S_DEPLOYMENT} \
                                 -n ${K8S_NAMESPACE}
 
                             echo ""
-                            echo "Current image BEFORE rollback:"
-
-                            kubectl get deployment ${K8S_DEPLOYMENT} \
-                                -n ${K8S_NAMESPACE} \
-                                -o jsonpath='{.spec.template.spec.containers[0].image}'
-
-                            echo ""
-
-                            echo ""
-                            echo "Executing Kubernetes rollback..."
+                            echo "Executing rollback..."
 
                             kubectl rollout undo \
                                 deployment/${K8S_DEPLOYMENT} \
                                 -n ${K8S_NAMESPACE}
-
-                            echo ""
-                            echo "Rollback command completed."
 
                             echo ""
                             echo "Waiting for rollback to complete..."
@@ -975,63 +991,64 @@ pipeline {
                                 -n ${K8S_NAMESPACE} \
                                 --timeout=${K8S_ROLLOUT_TIMEOUT}
 
-                            ROLLBACK_STATUS=\$?
+                            ROLLBACK_STATUS=\\$?
 
                             echo ""
-                            echo "Rollback rollout status: \$ROLLBACK_STATUS"
+                            echo "Rollback status: \\$ROLLBACK_STATUS"
 
-                            if [ "\$ROLLBACK_STATUS" -eq 0 ]; then
+                            echo ""
+                            echo "=========================================="
+                            echo "POST-ROLLBACK VERIFICATION"
+                            echo "=========================================="
 
-                                echo ""
-                                echo "=========================================="
-                                echo "ROLLBACK SUCCESSFUL"
-                                echo "=========================================="
+                            kubectl get deployment \
+                                ${K8S_DEPLOYMENT} \
+                                -n ${K8S_NAMESPACE}
 
-                                echo ""
-                                echo "Current image AFTER rollback:"
+                            echo ""
+                            echo "Current image after rollback:"
 
-                                kubectl get deployment ${K8S_DEPLOYMENT} \
-                                    -n ${K8S_NAMESPACE} \
-                                    -o jsonpath='{.spec.template.spec.containers[0].image}'
+                            kubectl get deployment ${K8S_DEPLOYMENT} \
+                                -n ${K8S_NAMESPACE} \
+                                -o jsonpath='{.spec.template.spec.containers[0].image}'
 
-                                echo ""
+                            echo ""
 
-                                echo ""
-                                echo "Current pods:"
+                            echo ""
+                            echo "Pods after rollback:"
 
-                                kubectl get pods \
-                                    -n ${K8S_NAMESPACE} \
-                                    -l app=${APP_NAME}
+                            kubectl get pods \
+                                -n ${K8S_NAMESPACE} \
+                                -l app=${APP_NAME} \
+                                -o wide
 
-                                echo ""
-                                echo "=========================================="
-
-                            else
+                            if [ "\\$ROLLBACK_STATUS" -ne 0 ]; then
 
                                 echo ""
                                 echo "=========================================="
                                 echo "ROLLBACK FAILED"
                                 echo "=========================================="
 
-                                kubectl get pods \
-                                    -n ${K8S_NAMESPACE} \
-                                    -l app=${APP_NAME}
-
                                 exit 1
                             fi
-                        """
-                    }
 
-                } else {
+                            echo ""
+                            echo "=========================================="
+                            echo "AUTOMATIC ROLLBACK SUCCESSFUL"
+                            echo "=========================================="
 
-                    echo "No Kubernetes deployment was started."
-                    echo "Rollback is NOT required."
+                        else
 
+                            echo "=========================================="
+                            echo "NO ROLLBACK REQUIRED"
+                            echo "=========================================="
+
+                            echo "The Deployment image is not the current build."
+                            echo "Failure occurred before Kubernetes image update."
+
+                        fi
+                    """
                 }
-
-                echo "=========================================="
-                echo "FAILURE HANDLER COMPLETED"
-                echo "=========================================="
             }
         }
     }
