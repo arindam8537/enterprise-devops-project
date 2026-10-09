@@ -23,7 +23,7 @@ pipeline {
         DEPLOYMENT_REPO_URL = "https://github.com/arindam8537/employee-k8s.git"
         DEPLOYMENT_REPO_DIR = "employee-k8s-work"
         DEPLOYMENT_BRANCH   = "main"
-        DEPLOYMENT_CREDENTIALS = "github-employee-k8s"
+        DEPLOYMENT_CREDENTIALS = "github_terraform"  // GitHub credentials for pushing to the deployment repository
         CD_JOB_NAME         = "employee-k8s-cd"
 
         // SonarQube
