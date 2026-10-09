@@ -41,7 +41,7 @@ pipeline {
      //   PREVIOUS_IMAGE = ""
         IMAGE_TAG  = "${BUILD_NUMBER}"
         // Docker cleanup is disabled for now; set to "true" when ready to purge old Jenkins/DinD images.
-        DOCKER_CLEANUP_ENABLED = "false"
+        DOCKER_CLEANUP_ENABLED = "true"
     }
 
     stages {
