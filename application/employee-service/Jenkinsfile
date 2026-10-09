@@ -363,7 +363,7 @@ pipeline {
                     git branch: "${DEPLOYMENT_BRANCH}",
                         credentialsId: "${DEPLOYMENT_CREDENTIALS}",
                         url: "${DEPLOYMENT_REPO_URL}"
-
+/* -- commented as sed command not working ---
                     sh '''
                         set -eu
                         echo "Deployment manifest before update:"
@@ -382,6 +382,42 @@ pipeline {
                         if [ "$updated_image_count" -ne 1 ]; then
                             echo "ERROR: deployment.yaml image tag was not updated exactly as expected."
                             grep -nE '^[[:space:]]*image:' deployment.yaml || true
+                            exit 1
+                        fi
+
+                        git diff --check
+                        git diff -- deployment.yaml
+                    '''  -- commented till here and using awk  */
+                    sh '''
+                        set -eu
+
+                        echo "Deployment manifest before update:"
+                        grep -nE '^[[:space:]]*image:' deployment.yaml
+
+                        image_line_count=$(grep -Ec '^[[:space:]]*image:[[:space:]]*arindamtiwari/employee-service:' deployment.yaml || true)
+
+                        if [ "$image_line_count" -ne 1 ]; then
+                            echo "ERROR: Expected exactly one employee-service image line; found $image_line_count"
+                            exit 1
+                        fi
+
+                        # Replace the complete image reference using awk.
+                        awk -v tag="$BUILD_NUMBER" '
+                            /^[[:space:]]*image:[[:space:]]*arindamtiwari\\/employee-service:/ {
+                                sub(/arindamtiwari\\/employee-service:[^[:space:]]+/, "arindamtiwari/employee-service:" tag)
+                            }
+                            { print }
+                        ' deployment.yaml > deployment.yaml.tmp
+
+                        mv deployment.yaml.tmp deployment.yaml
+
+                        echo "Deployment manifest after update:"
+                        grep -nE '^[[:space:]]*image:' deployment.yaml
+
+                        updated_image_count=$(grep -Ec '^[[:space:]]*image:[[:space:]]*arindamtiwari/employee-service:'"$BUILD_NUMBER"'[[:space:]]*$' deployment.yaml || true)
+
+                        if [ "$updated_image_count" -ne 1 ]; then
+                            echo "ERROR: Image tag update failed."
                             exit 1
                         fi
 
