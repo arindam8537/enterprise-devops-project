@@ -375,7 +375,8 @@ pipeline {
                             exit 1
                         fi
 
-                        sed -i -E "s|(^[[:space:]]*image:[[:space:]]*)arindamtiwari/employee-service:[^[:space:]]+|\1${IMAGE_NAME}:${BUILD_NUMBER}|" deployment.yaml
+                      #  sed -i -E "s|(^[[:space:]]*image:[[:space:]]*)arindamtiwari/employee-service:[^[:space:]]+|\1${IMAGE_NAME}:${BUILD_NUMBER}|" deployment.yaml
+                        sed -i -E "/^[[:space:]]*image:[[:space:]]*arindamtiwari\/employee-service:/s|image:.*|image: ${IMAGE_NAME}:${BUILD_NUMBER}|" deployment.yaml
 
                         updated_image_count=$(grep -Ec "^[[:space:]]*image:[[:space:]]*${IMAGE_NAME}:${BUILD_NUMBER}$" deployment.yaml || true)
                         if [ "$updated_image_count" -ne 1 ]; then
