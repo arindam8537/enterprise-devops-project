@@ -482,7 +482,22 @@ ASKPASS
         cleanup {
             script {
                 if (env.DOCKER_CLEANUP_ENABLED == 'true') {
-                    sh 'docker image prune -f || true'
+                    sh '''
+                    echo "Docker images before cleanup:"
+                    docker images
+
+                    echo "Docker disk usage before cleanup:"
+                    docker system df
+
+                    echo "Removing unused images older than 2 days..."
+                    docker image prune -a -f --filter "until=48h"
+
+                    echo "Docker images after cleanup:"
+                    docker images
+
+                    echo "Docker disk usage after cleanup:"
+                    docker system df
+                '''
                 } else {
                     echo 'Docker cleanup is disabled; no images were pruned.'
                 }
